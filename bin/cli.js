@@ -235,48 +235,57 @@ program
     const retrieveDir = path.resolve('.sfm-retrieve');
 
     const { createStore, setTypes, setComponents } = await import('../src/store.js');
-
-    let store;
-    let loadInto;
-    let orgChoices = [];
+    const store = createStore({ sourceOrg: '', targetOrg: cmdOpts.target || '' });
+    let prepare;
 
     if (cmdOpts.demo) {
-      const { DEMO_TYPES, DEMO_COMPONENTS } = await import('../src/demo.js');
-      store = createStore({ sourceOrg: 'DEMO', targetOrg: cmdOpts.target || 'DEMO-prod' });
-      setTypes(store, DEMO_TYPES);
-      loadInto = async (type) => { setComponents(store, type, DEMO_COMPONENTS[type] || []); };
+      store.sourceOrg = 'DEMO';
+      store.targetOrg = cmdOpts.target || 'DEMO-prod';
+      prepare = async (step) => {
+        step.begin('Loading demo data …');
+        const { DEMO_TYPES, DEMO_COMPONENTS } = await import('../src/demo.js');
+        step.done('Demo data ready');
+        return {
+          types: DEMO_TYPES,
+          loadComponents: async (type) => { setComponents(store, type, DEMO_COMPONENTS[type] || []); },
+          orgs: [],
+        };
+      };
     } else {
-      console.log('Loading Salesforce libraries …');
-      const { listOrgs, connect, orgLabel } = await import('../src/org.js'); // pulls @salesforce/core
-      const { describeTypes, listComponents, FOLDER_TYPES } = await import('../src/metadata.js');
-
-      const source = cmdOpts.source
-        || (await (async () => {
-          const orgs = await listOrgs();
-          if (orgs.length === 0) throw new Error('No authenticated orgs. Run `sf org login web`.');
-          const { select } = await import('@inquirer/prompts');
-          return select({
-            message: 'Source org to browse',
-            choices: orgs.map((o) => ({ name: orgLabel(o), value: o.aliases?.[0] || o.username })),
-          });
-        })());
-
-      console.log(`Connecting to ${source} …`);
-      const conn = await connect(source);
-      console.log('Describing metadata types …');
-      const types = (await describeTypes(conn, apiVersion)).filter((t) => !FOLDER_TYPES.has(t.name));
-
-      store = createStore({ sourceOrg: source, targetOrg: cmdOpts.target || '' });
-      setTypes(store, types);
-
-      const all = await listOrgs();
-      orgChoices = all
-        .filter((o) => (o.aliases?.[0] || o.username) !== source)
-        .map((o) => ({ label: orgLabel(o), value: o.aliases?.[0] || o.username }));
-
-      loadInto = async (type, { refresh = false } = {}) => {
-        const rows = await listComponents(conn, type, { apiVersion, orgKey: source, refresh });
-        setComponents(store, type, rows);
+      // Source org is chosen BEFORE blessed (it needs an inquirer prompt when
+      // --source isn't given); the slow connect+describe happens under the splash.
+      let source = cmdOpts.source;
+      if (!source) {
+        const { listOrgs, orgLabel } = await import('../src/org.js');
+        const orgs = await listOrgs();
+        if (orgs.length === 0) { console.error('No authenticated orgs. Run `sf org login web`.'); process.exit(1); }
+        const { select } = await import('@inquirer/prompts');
+        source = await select({
+          message: 'Source org to browse',
+          choices: orgs.map((o) => ({ name: orgLabel(o), value: o.aliases?.[0] || o.username })),
+        });
+      }
+      store.sourceOrg = source;
+      prepare = async (step) => {
+        step.begin('Loading Salesforce libraries …');
+        const { connect, listOrgs, orgLabel } = await import('../src/org.js'); // pulls @salesforce/core
+        const { describeTypes, listComponents, FOLDER_TYPES } = await import('../src/metadata.js');
+        step.done('Loaded libraries');
+        step.begin(`Connecting to ${source} …`);
+        const conn = await connect(source);
+        step.done(`Connected to ${source}`);
+        step.begin('Describing metadata types …');
+        const types = (await describeTypes(conn, apiVersion)).filter((t) => !FOLDER_TYPES.has(t.name));
+        step.done(`Found ${types.length} metadata types`);
+        const all = await listOrgs();
+        const orgs = all
+          .filter((o) => (o.aliases?.[0] || o.username) !== source)
+          .map((o) => ({ label: orgLabel(o), value: o.aliases?.[0] || o.username }));
+        const loadComponents = async (type, { refresh = false } = {}) => {
+          const rows = await listComponents(conn, type, { apiVersion, orgKey: source, refresh });
+          setComponents(store, type, rows);
+        };
+        return { types, loadComponents, orgs };
       };
     }
 
@@ -291,7 +300,7 @@ program
     } catch { /* ignore */ }
 
     const { runTui } = await import('../src/tui.js'); // pulls blessed
-    const result = await runTui({ store, loadComponents: loadInto, orgs: orgChoices });
+    const result = await runTui({ store, prepare });
 
     // blessed leaves the terminal in raw mode on exit — restore cooked mode so
     // the streamed `sf` output (and any later prompt) behaves normally.
@@ -333,14 +342,29 @@ program
     }
 
     const { retrieveFromSource, deployToTarget } = await import('../src/orgflow.js'); // pulls SDR
+    const { actionBanner, step, resultBox, fmtElapsed, c } = await import('../src/cli-ui.js');
+    const t0 = Date.now();
+    const elapsed = () => fmtElapsed(Date.now() - t0);
 
-    console.log(`\n1/2  Retrieving ${result.entries.length} components from ${store.sourceOrg} …`);
+    console.log(actionBanner({
+      action: result.action,
+      source: store.sourceOrg,
+      target: result.targetOrg,
+      count: result.entries.length,
+      testLevel: result.testLevel,
+    }));
+
+    console.log(step(1, 2, `Retrieving ${result.entries.length} components from ${c.yellow(store.sourceOrg)} …`));
     const r = await retrieveFromSource({
       manifestDir, retrieveDir, sourceOrg: store.sourceOrg, entries: result.entries, apiVersion,
     });
-    if (r.code !== 0) { console.error(`\n${r.error || 'Retrieve failed.'}`); process.exit(r.code); }
+    if (r.code !== 0) {
+      console.error(resultBox({ ok: false, label: r.error || 'Retrieve failed' }));
+      process.exit(r.code);
+    }
 
-    console.log(`\n2/2  ${result.action === 'validate' ? 'Validating' : 'Deploying'} to ${result.targetOrg} (test-level ${result.testLevel}) …`);
+    const verb = result.action === 'validate' ? 'Validating' : 'Deploying';
+    console.log(step(2, 2, `${verb} to ${c.yellow(result.targetOrg)} (${result.testLevel}) …`));
     const deployCode = await deployToTarget({
       retrieveDir,
       targetOrg: result.targetOrg,
@@ -348,6 +372,14 @@ program
       tests,
       validate: result.action === 'validate',
     });
+
+    const past = result.action === 'validate' ? 'Validated' : 'Deployed';
+    console.log(resultBox({
+      ok: deployCode === 0,
+      label: deployCode === 0
+        ? `${past} · ${result.entries.length} components · ${elapsed()}`
+        : `${result.action === 'validate' ? 'Validation' : 'Deploy'} failed · see output above · ${elapsed()}`,
+    }));
     process.exit(deployCode);
   });
 
