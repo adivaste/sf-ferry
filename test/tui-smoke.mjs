@@ -42,9 +42,10 @@ let result;
 try {
   const p = runTui({ store, loadComponents, orgs: [{ label: 'prodX', value: 'prodX' }] });
 
-  // After boot: select all visible ApexClass rows, then build package.xml.
-  setTimeout(() => { input.write('a'); }, 300);   // select all visible
-  setTimeout(() => { input.write('b'); }, 600);   // build -> resolves with entries
+  // Open a type (focus the table), select all visible rows, then build.
+  setTimeout(() => { input.write('\r'); }, 300);  // open ApexClass -> focus table
+  setTimeout(() => { input.write('a'); }, 600);   // select all visible
+  setTimeout(() => { input.write('b'); }, 900);   // build -> resolves with entries
 
   result = await p;
 } catch (e) {

@@ -38,17 +38,18 @@ const timer = setTimeout(() => fail('timed out'), 8000);
 const p = runTui({ store, loadComponents, orgs: [] }).then((r) => { resolved = true; return r; });
 
 const at = (ms, fn) => setTimeout(fn, ms);
-at(300, () => input.write('/'));      // enter filter mode
-at(360, () => input.write('a'));      // 'a' would be select-all if unguarded
-at(420, () => input.write('c'));      // 'c' would be clear if unguarded
-at(480, () => input.write('d'));      // 'd' would DEPLOY (resolve) if unguarded
-at(700, () => {
+at(300, () => input.write('\r'));     // open a type -> focus the table
+at(500, () => input.write('/'));      // enter row-filter mode
+at(560, () => input.write('a'));      // 'a' would be select-all if unguarded
+at(620, () => input.write('c'));      // 'c' would be clear if unguarded
+at(680, () => input.write('d'));      // 'd' would DEPLOY (resolve) if unguarded
+at(900, () => {
   filterMidType = store.filter;
   if (resolved) fail('a global shortcut fired while typing in the filter (resolved early)');
   if (filterMidType !== 'acd') fail(`filter did not update live; got "${filterMidType}"`);
 });
-at(760, () => input.write('')); // escape -> cancel filter
-at(950, () => input.write('q'));      // quit
+at(980,() => input.write('')); // escape -> cancel filter
+at(1200, () => input.write('q'));     // quit
 
 const result = await p;
 clearTimeout(timer);

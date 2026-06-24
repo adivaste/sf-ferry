@@ -124,9 +124,10 @@ sfm deploy                                                         # fully inter
 ### Selecting components (two-level, live search)
 Picking is intuitive and happens in two steps:
 
-1. **Pick a metadata type** — a searchable list of every type present in your
-   source, with counts and how many you've already staged
-   (`ApexClass  (42) — 3 selected`). Type to filter the list, enter to open it.
+1. **Pick a metadata type** — a list of every type in the org (including child
+   types like CustomField). **Just start typing** to filter it like a picklist
+   (e.g. type `trig` → `ApexTrigger`); backspace edits, `esc` clears. `↑↓` move,
+   `enter` opens the highlighted type.
 2. **Pick the members** — a live-search checklist of that type's components:
    - **type** any text → the list filters as you go
    - **↑ / ↓** → move the highlight
