@@ -44,6 +44,7 @@ setTimeout(() => {
   for (let i = 0; i < 6; i += 1) input.write('\x1b[6~');          // a few PageDowns
   input.write('q');
 }, 700);
+setTimeout(() => input.write('y'), 1000); // confirm the quit
 
 const result = await p;
 const elapsed = Date.now() - t0;

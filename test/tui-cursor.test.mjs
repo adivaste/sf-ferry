@@ -34,7 +34,8 @@ at(500, () => input.write(DOWN));   // -> row 2
 at(580, () => input.write(DOWN));   // -> row 3
 at(700, () => input.write(' '));    // toggle the row-3 component ON
 at(850, () => input.write(' '));    // toggle the SAME component OFF (if cursor kept)
-at(1050, () => input.write('b'));   // build
+at(1050, () => input.write('b'));   // build -> confirm
+at(1200, () => input.write('y'));   // confirm
 
 const result = await p;
 clearTimeout(timer);

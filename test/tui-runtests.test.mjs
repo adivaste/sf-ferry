@@ -34,9 +34,10 @@ at(600, () => input.write('l'));       // -> RunAllTestsInOrg
 at(700, () => input.write('l'));       // -> RunRelevantTests
 at(800, () => input.write('l'));       // -> NoTestRun
 at(900, () => input.write('l'));       // -> RunSpecifiedTests
-at(1050, () => input.write('d'));      // deploy -> opens in-TUI test prompt
-at(1200, () => input.write('MyControllerTest, AccountServiceTest')); // type (paste-like)
-at(1450, () => input.write('\r'));     // submit
+at(1050, () => input.write('d'));      // deploy -> confirm dialog
+at(1200, () => input.write('y'));      // confirm -> opens in-TUI test prompt
+at(1400, () => input.write('MyControllerTest, AccountServiceTest')); // type (paste-like)
+at(1650, () => input.write('\r'));     // submit
 
 const result = await p;
 clearTimeout(timer);
