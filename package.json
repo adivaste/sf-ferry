@@ -1,0 +1,22 @@
+{
+  "name": "sf-manifest-cli",
+  "version": "1.0.0",
+  "description": "Interactive CLI to build Salesforce package.xml / destructiveChanges.xml by searching and selecting local metadata, then deploy with full test-level control.",
+  "type": "module",
+  "bin": {
+    "sfm": "bin/cli.js"
+  },
+  "scripts": {
+    "start": "node bin/cli.js",
+    "test": "node test/prompt.test.mjs"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^7.2.1",
+    "@salesforce/source-deploy-retrieve": "^12.10.3",
+    "commander": "^13.0.0"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@inquirer/testing": "^3.3.9"
+  }
+}
