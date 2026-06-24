@@ -51,7 +51,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     let lastSig = '';
     let lastAt = 0;
     const realEmit = program.emit.bind(program);
-    program.emit = (type, ...args) => {
+    const dedupeEmit = (type, ...args) => {
       if (type === 'keypress') {
         const key = args[1];
         const sig = `${key ? key.full || key.name : ''}|${args[0] || ''}`;
@@ -62,6 +62,9 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       }
       return realEmit(type, ...args);
     };
+    const applyDedupe = () => { program.emit = dedupeEmit; };
+    const removeDedupe = () => { program.emit = realEmit; };
+    applyDedupe();
 
     let testLevel = 'RunLocalTests';
     let busy = false;
@@ -405,13 +408,58 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       picker.key('q', close);
     });
 
-    function cleanup() { program.emit = realEmit; }
+    function cleanup() { removeDedupe(); }
+
+    // In-TUI prompt for RunSpecifiedTests so we never hand stdin off to another
+    // prompt after blessed (which leaves the terminal in raw mode → no input).
+    function promptTests(cb) {
+      modal = true;
+      removeDedupe(); // let paste/burst input through unfiltered
+      const box = blessed.box({
+        parent: screen, top: 'center', left: 'center', width: '70%', height: 8,
+        border: 'line', tags: true,
+        label: ' Test classes — comma-separated · Enter to run · Esc to cancel ',
+        style: { border: { fg: 'cyan' }, label: { fg: 'cyan' } },
+      });
+      blessed.box({
+        parent: box, bottom: 1, left: 1, right: 1, height: 2, tags: true,
+        content: '{gray-fg}e.g.  MyController_Test, AccountServiceTest{/gray-fg}',
+      });
+      const tb = blessed.textbox({
+        parent: box, top: 1, left: 1, right: 1, height: 1, inputOnFocus: true,
+        style: { fg: 'white', focus: { bg: 'black' } },
+      });
+      const close = (val) => {
+        box.destroy();
+        applyDedupe();
+        modal = false;
+        focusPane(table);
+        cb(val == null ? null : val.split(',').map((s) => s.trim()).filter(Boolean));
+      };
+      tb.on('submit', (v) => close(v));
+      tb.key('escape', () => tb.cancel());
+      tb.on('cancel', () => close(null));
+      tb.focus();
+      tb.readInput();
+      screen.render();
+    }
+
+    function resolveWith(action, tests) {
+      cleanup();
+      screen.destroy();
+      resolve({ action, testLevel, targetOrg: store.targetOrg, entries: manifestEntries(store), tests: tests || [] });
+    }
     function finish(action) {
       if (filtering || modal || typing()) return;
       if (action !== 'build' && selectionCount(store) === 0) { status('Select at least one component first.'); return; }
-      cleanup();
-      screen.destroy();
-      resolve({ action, testLevel, targetOrg: store.targetOrg, entries: manifestEntries(store) });
+      if ((action === 'deploy' || action === 'validate') && testLevel === 'RunSpecifiedTests') {
+        promptTests((tests) => {
+          if (!tests || tests.length === 0) { status('RunSpecifiedTests needs at least one test class.'); return; }
+          resolveWith(action, tests);
+        });
+        return;
+      }
+      resolveWith(action, []);
     }
     function doQuit() { cleanup(); screen.destroy(); resolve({ action: 'quit' }); }
     screen.key('b', () => finish('build'));
