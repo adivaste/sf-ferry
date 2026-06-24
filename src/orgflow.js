@@ -34,12 +34,18 @@ export function buildRetrieveArgs({ manifestPath, sourceOrg, metadataDir, wait =
 }
 
 export function buildOrgDeployArgs({ zipPath, targetOrg, testLevel, tests = [], validate = false, wait = 60 }) {
+  // `deploy validate` rejects NoTestRun (a validation must run tests). To still
+  // offer a no-test check, fall back to a check-only `deploy start --dry-run`
+  // (the approach the sf CLI itself recommends for this).
+  const dryRunValidate = validate && testLevel === 'NoTestRun';
+  const sub = validate && !dryRunValidate ? 'validate' : 'start';
   const args = [
-    'project', 'deploy', validate ? 'validate' : 'start',
+    'project', 'deploy', sub,
     '--metadata-dir', zipPath, // a zip with an unpackaged/ wrapper — NOT --single-package
     '--target-org', targetOrg,
     '--test-level', testLevel,
   ];
+  if (dryRunValidate) args.push('--dry-run');
   if (testLevel === 'RunSpecifiedTests') for (const t of tests) args.push('--tests', t);
   args.push('--wait', String(wait), '--verbose');
   return args;
