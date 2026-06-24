@@ -34,7 +34,8 @@ at(600, () => input.write('?'));   // open help overlay
 at(750, () => input.write('d'));   // would deploy if not blocked by the modal
 at(870, () => { resolvedWhileHelp = resolved; });
 at(1000, () => input.write('?'));  // close help
-at(1150, () => input.write('q'));  // quit
+at(1150, () => input.write('q'));  // quit -> confirm
+at(1300, () => input.write('y'));  // confirm
 
 const result = await p;
 clearTimeout(timer);

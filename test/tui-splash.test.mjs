@@ -34,7 +34,8 @@ const p = runTui({ store, prepare });
 
 // prepare resolves ~instantly; reveal, open a type (focus the table), then quit.
 setTimeout(() => input.write('\r'), 600);
-setTimeout(() => input.write('q'), 850);
+setTimeout(() => input.write('q'), 850);   // quit -> confirm
+setTimeout(() => input.write('y'), 1000);  // confirm
 
 const result = await p;
 clearTimeout(timer);

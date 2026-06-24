@@ -42,10 +42,11 @@ let result;
 try {
   const p = runTui({ store, loadComponents, orgs: [{ label: 'prodX', value: 'prodX' }] });
 
-  // Open a type (focus the table), select all visible rows, then build.
+  // Open a type (focus the table), select all visible rows, then build (confirm).
   setTimeout(() => { input.write('\r'); }, 300);  // open ApexClass -> focus table
   setTimeout(() => { input.write('a'); }, 600);   // select all visible
-  setTimeout(() => { input.write('b'); }, 900);   // build -> resolves with entries
+  setTimeout(() => { input.write('b'); }, 900);   // build -> confirm dialog
+  setTimeout(() => { input.write('y'); }, 1050);  // confirm -> resolves with entries
 
   result = await p;
 } catch (e) {

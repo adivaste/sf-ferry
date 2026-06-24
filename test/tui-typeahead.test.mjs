@@ -41,7 +41,8 @@ at(500, () => { selAfterA = selectionCount(store); });
 at(560, () => input.write('\x7f')); // backspace: clear the 'a'
 at(650, () => input.write('trig')); // filter to ApexTrigger (no double letters)
 at(850, () => input.write('\r'));   // open the single match -> ApexTrigger
-at(1050, () => input.write('q'));   // now on the table; quit
+at(1050, () => input.write('q'));   // now on the table; quit -> confirm
+at(1200, () => input.write('y'));   // confirm
 
 const result = await p;
 clearTimeout(timer);

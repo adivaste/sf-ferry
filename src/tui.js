@@ -88,6 +88,7 @@ const HELP_TEXT = [
   '  r                 refresh current type from the org',
   '  b                 write package.xml only',
   '  v / d             validate / deploy (org → org)',
+  '  (b / v / d / q ask for y/n confirmation; Ctrl+C force-quits)',
   '  ? / Esc           close this help',
   '  q                 quit',
 ].join('\n');
@@ -614,11 +615,40 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null }) {
       resolveWith(action, []);
     }
     function doQuit() { cleanup(); screen.destroy(); resolve({ action: 'quit' }); }
-    screen.key('b', () => finish('build'));
-    screen.key('v', () => finish('validate'));
-    screen.key('d', () => finish('deploy'));
-    screen.key('q', () => { if (filtering || modal || typing()) return; doQuit(); });
-    screen.key('C-c', () => doQuit()); // Ctrl+C always quits, even while typing
+
+    // Small y/n confirmation so q/d/v/b aren't triggered by an accidental keypress.
+    function confirmAction(message, onYes) {
+      if (modal || filtering) return;
+      modal = true;
+      const box = blessed.box({
+        parent: screen, top: 'center', left: 'center', width: '60%', height: 6,
+        border: 'line', tags: true, label: ' Confirm ', padding: { left: 1, right: 1 },
+        style: { border: { fg: 'yellow' }, label: { fg: 'yellow' } },
+      });
+      box.setContent(`\n${message}\n\n  {green-fg}y{/green-fg} / {green-fg}enter{/green-fg} = yes      {red-fg}n{/red-fg} / {red-fg}esc{/red-fg} = no`);
+      box.focus();
+      const close = (yes) => {
+        box.destroy();
+        modal = false;
+        focusPane(focusedPane || table);
+        if (yes) onYes();
+      };
+      box.key(['y', 'enter'], () => close(true));
+      box.key(['n', 'escape', 'q'], () => close(false));
+      screen.render();
+    }
+    function confirmThen(message, action) {
+      if (filtering || modal || typing()) return;
+      if (action !== 'build' && selectionCount(store) === 0) { status('Select at least one component first.'); return; }
+      if (action !== 'build' && !store.targetOrg) { status('Pick a target org first (press t).'); return; }
+      confirmAction(message, () => finish(action));
+    }
+    const count = () => selectionCount(store);
+    screen.key('b', () => confirmThen(`Write package.xml with ${count()} component(s)?`, 'build'));
+    screen.key('v', () => confirmThen(`Validate ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?`, 'validate'));
+    screen.key('d', () => confirmThen(`Deploy ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?`, 'deploy'));
+    screen.key('q', () => { if (filtering || modal || typing()) return; confirmAction('Quit sfm?  Your selection will be lost.', doQuit); });
+    screen.key('C-c', () => doQuit()); // Ctrl+C always quits immediately (hard escape)
 
     function cyclePane(dir) {
       if (filtering || modal) return;

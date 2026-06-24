@@ -49,7 +49,8 @@ at(900, () => {
   if (filterMidType !== 'acd') fail(`filter did not update live; got "${filterMidType}"`);
 });
 at(980,() => input.write('')); // escape -> cancel filter
-at(1200, () => input.write('q'));     // quit
+at(1200, () => input.write('q'));     // quit -> confirm
+at(1350, () => input.write('y'));     // confirm
 
 const result = await p;
 clearTimeout(timer);
