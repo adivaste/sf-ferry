@@ -248,7 +248,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       const tgt = store.targetOrg || '(press t)';
       const div = ' {gray-fg}│{/gray-fg} ';
       header.setContent(
-        ` {bold}{cyan-bg}{black-fg} ✦ SFM {/black-fg}{/cyan-bg}{/bold}` + div +
+        ` {bold}{cyan-bg}{black-fg} ✷ SFM {/black-fg}{/cyan-bg}{/bold}` + div +
         `{gray-fg}source{/gray-fg} {cyan-fg}{bold}${store.sourceOrg}{/bold}{/cyan-fg} ` +
         `{gray-fg}→{/gray-fg} {gray-fg}target{/gray-fg} {yellow-fg}{bold}${tgt}{/bold}{/yellow-fg}` + div +
         `{gray-fg}tests{/gray-fg} {magenta-fg}{bold}${testLevel}{/bold}{/magenta-fg}` + div +
