@@ -335,10 +335,10 @@ program
     const { retrieveFromSource, deployToTarget } = await import('../src/orgflow.js'); // pulls SDR
 
     console.log(`\n1/2  Retrieving ${result.entries.length} components from ${store.sourceOrg} …`);
-    const rc = await retrieveFromSource({
+    const r = await retrieveFromSource({
       manifestDir, retrieveDir, sourceOrg: store.sourceOrg, entries: result.entries, apiVersion,
     });
-    if (rc !== 0) { console.error('Retrieve failed.'); process.exitCode = rc; return; }
+    if (r.code !== 0) { console.error(`\n${r.error || 'Retrieve failed.'}`); process.exitCode = r.code; return; }
 
     console.log(`\n2/2  ${result.action === 'validate' ? 'Validating' : 'Deploying'} to ${result.targetOrg} (test-level ${result.testLevel}) …`);
     process.exitCode = await deployToTarget({
