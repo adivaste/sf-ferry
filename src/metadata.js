@@ -23,18 +23,29 @@ function cachePath(orgKey, type) {
   return path.join(CACHE_ROOT, safe(orgKey), `${safe(type)}.json`);
 }
 
-/** All metadata types in the org (xmlName), folder types flagged. */
+/**
+ * All selectable metadata types in the org. Includes both top-level types
+ * (xmlName) AND child types (childXmlNames) such as CustomField, ValidationRule,
+ * RecordType, WebLink, ListView, FieldSet, CompactLayout, BusinessProcess, etc.
+ * — these are listable via listMetadata and appear in change sets, but are NOT
+ * returned as top-level metadataObjects, which is why they were missing before.
+ */
 export async function describeTypes(conn, apiVersion) {
   const res = await conn.metadata.describe(apiVersion);
   const objects = res?.metadataObjects || [];
-  return objects
-    .map((m) => ({
-      name: m.xmlName,
-      inFolder: m.inFolder === true || m.inFolder === 'true',
-      childXmlNames: [].concat(m.childXmlNames || []),
-    }))
-    .filter((m) => m.name)
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const byName = new Map();
+  for (const m of objects) {
+    if (m.xmlName && !byName.has(m.xmlName)) {
+      byName.set(m.xmlName, {
+        name: m.xmlName,
+        inFolder: m.inFolder === true || m.inFolder === 'true',
+      });
+    }
+    for (const child of [].concat(m.childXmlNames || [])) {
+      if (child && !byName.has(child)) byName.set(child, { name: child, inFolder: false });
+    }
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function normalize(fp) {
