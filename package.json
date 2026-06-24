@@ -8,11 +8,12 @@
   },
   "scripts": {
     "start": "node bin/cli.js",
-    "test": "node test/prompt.test.mjs"
+    "test": "node test/store.test.mjs && node test/prompt.test.mjs && node test/tui-smoke.mjs"
   },
   "dependencies": {
     "@inquirer/prompts": "^7.2.1",
     "@salesforce/source-deploy-retrieve": "^12.10.3",
+    "blessed": "^0.1.81",
     "commander": "^13.0.0"
   },
   "license": "MIT",
