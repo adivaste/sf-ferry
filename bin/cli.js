@@ -293,6 +293,13 @@ program
     const { runTui } = await import('../src/tui.js'); // pulls blessed
     const result = await runTui({ store, loadComponents: loadInto, orgs: orgChoices });
 
+    // blessed leaves the terminal in raw mode on exit — restore cooked mode so
+    // the streamed `sf` output (and any later prompt) behaves normally.
+    try {
+      if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(false);
+      process.stdin.resume();
+    } catch { /* ignore */ }
+
     if (result.action === 'quit') return;
 
     if (result.action === 'build') {
@@ -316,16 +323,13 @@ program
       return;
     }
 
-    let tests = [];
-    if (result.testLevel === 'RunSpecifiedTests') {
-      const { input } = await import('@inquirer/prompts');
-      const raw = await input({ message: 'Test classes to run (comma-separated):' });
-      tests = raw.split(',').map((s) => s.trim()).filter(Boolean);
-      if (tests.length === 0) {
-        console.error('RunSpecifiedTests requires at least one test class.');
-        process.exitCode = 1;
-        return;
-      }
+    // Test classes for RunSpecifiedTests are now collected inside the TUI
+    // (avoids handing stdin to a prompt after blessed, which broke input).
+    const tests = result.tests || [];
+    if (result.testLevel === 'RunSpecifiedTests' && tests.length === 0) {
+      console.error('RunSpecifiedTests requires at least one test class.');
+      process.exitCode = 1;
+      return;
     }
 
     const { retrieveFromSource, deployToTarget } = await import('../src/orgflow.js'); // pulls SDR
