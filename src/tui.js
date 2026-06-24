@@ -2,6 +2,7 @@ import blessed from 'blessed';
 import {
   COLUMNS,
   visibleRows,
+  setTypes,
   setActiveType,
   setFilter,
   setSort,
@@ -99,7 +100,12 @@ const HELP_TEXT = [
  * rows visible in the window are ever formatted/rendered (like fzf / vim).
  * Scrolling is pure array slicing — O(viewport), independent of total size.
  */
-export function runTui({ store, loadComponents, orgs = [] }) {
+export function runTui({ store, loadComponents, orgs = [], prepare = null }) {
+  // loadComponents/orgs may be (re)assigned by `prepare` after the splash.
+  // eslint-disable-next-line no-param-reassign
+  let _load = loadComponents;
+  // eslint-disable-next-line no-param-reassign
+  let _orgs = orgs;
   return new Promise((resolve) => {
     const screen = blessed.screen({
       smartCSR: true,
@@ -137,6 +143,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     let rightVisible = true; // Selected pane (Alt+B)
     let spinTimer = null;
     let spinFrame = 0;
+    let splashTimer = null;
     let helpBox = null;
     let focusedPane = null;
 
@@ -371,7 +378,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       busy = true;
       startSpin(`Loading ${type} from ${store.sourceOrg} …`);
       try {
-        await loadComponents(type, { refresh });
+        await _load(type, { refresh });
       } catch (e) {
         stopSpin();
         status(`Error loading ${type}: ${e.message}`);
@@ -508,24 +515,28 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     });
     screen.key('t', () => {
       if (filtering || modal || typing()) return;
-      if (orgs.length === 0) { status('No other orgs found (pass --target).'); return; }
+      if (_orgs.length === 0) { status('No other orgs found (pass --target).'); return; }
       modal = true;
       const picker = blessed.list({
         parent: screen, label: ' Pick target org (esc to cancel) ', top: 'center', left: 'center',
         width: '60%', height: '60%', border: 'line', keys: true, mouse: true,
-        items: orgs.map((o) => o.label),
+        items: _orgs.map((o) => o.label),
         style: { selected: { bg: 'cyan', fg: 'black' }, border: { fg: 'cyan' }, label: { fg: 'cyan' } },
         scrollbar: { ch: ' ', style: { bg: 'cyan' } },
       });
       picker.focus();
       screen.render();
       const close = () => { modal = false; picker.destroy(); renderFooter(); focusPane(table); };
-      picker.on('select', (_i, idx) => { store.targetOrg = orgs[idx].value; renderHeader(); close(); });
+      picker.on('select', (_i, idx) => { store.targetOrg = _orgs[idx].value; renderHeader(); close(); });
       picker.key('escape', close);
       picker.key('q', close);
     });
 
-    function cleanup() { stopSpin(); removeDedupe(); }
+    function cleanup() {
+      stopSpin();
+      if (splashTimer) { clearInterval(splashTimer); splashTimer = null; }
+      removeDedupe();
+    }
 
     function toggleHelp() {
       if (helpBox) {
@@ -636,9 +647,69 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     screen.on('resize', () => { renderTable(); paint(); });
 
     // ---- boot ------------------------------------------------------------
-    renderAll();
-    focusPane(typesList);
-    if (store.activeType) ensureLoaded(store.activeType);
+    function revealMain() {
+      modal = false;
+      renderAll();
+      focusPane(typesList);
+      if (store.activeType) ensureLoaded(store.activeType);
+      screen.render();
+    }
+
+    if (prepare) {
+      // Splash: the app frame is up immediately; show a branded checklist while
+      // the org connection + describe run, then dissolve into the main UI.
+      modal = true; // block stray action keys during loading (Ctrl+C still aborts)
+      const splash = blessed.box({
+        parent: screen, top: 0, left: 0, width: '100%', height: '100%',
+        tags: true, align: 'center', valign: 'middle',
+        style: { bg: 'black', fg: 'white' },
+      });
+      const steps = [];
+      let sf = 0;
+      const drawSplash = () => {
+        const lines = [
+          '{cyan-fg}{bold}✷   S F M{/bold}{/cyan-fg}',
+          '{gray-fg}Salesforce Metadata Migrator{/gray-fg}',
+          '',
+        ];
+        for (const s of steps) {
+          const icon = s.state === 'done' ? '{green-fg}✓{/green-fg}'
+            : s.state === 'fail' ? '{red-fg}✗{/red-fg}'
+              : `{cyan-fg}${SPIN_FRAMES[sf]}{/cyan-fg}`;
+          lines.push(`${icon}  ${s.text}`);
+        }
+        splash.setContent(lines.join('\n'));
+        screen.render();
+      };
+      splashTimer = setInterval(() => { sf = (sf + 1) % SPIN_FRAMES.length; drawSplash(); }, 90);
+      if (splashTimer.unref) splashTimer.unref();
+      const step = {
+        begin(msg) { steps.push({ text: msg, state: 'doing' }); drawSplash(); },
+        done(msg) { const l = steps[steps.length - 1]; if (l) { l.state = 'done'; if (msg) l.text = msg; } drawSplash(); },
+      };
+      drawSplash();
+      (async () => {
+        try {
+          const ret = await prepare(step);
+          if (ret) {
+            if (ret.types) setTypes(store, ret.types);
+            if (ret.loadComponents) _load = ret.loadComponents;
+            if (ret.orgs) _orgs = ret.orgs;
+          }
+          if (splashTimer) { clearInterval(splashTimer); splashTimer = null; }
+          splash.destroy();
+          revealMain();
+        } catch (e) {
+          if (splashTimer) { clearInterval(splashTimer); splashTimer = null; }
+          const l = steps[steps.length - 1];
+          if (l) { l.state = 'fail'; l.text = `{red-fg}${e.message}{/red-fg}`; }
+          steps.push({ text: '{gray-fg}press Ctrl+C to exit{/gray-fg}', state: 'done' });
+          drawSplash();
+        }
+      })();
+    } else {
+      revealMain();
+    }
     screen.render();
   });
 }
