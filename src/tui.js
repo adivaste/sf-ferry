@@ -138,7 +138,12 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       return `${label} ${store.sortDir === 1 ? '▲' : '▼'}`;
     }
 
-    function renderTable() {
+    // Only ever hand blessed a bounded window of rows — rebuilding a
+    // multi-thousand-row listtable on every keystroke is what caused the lag.
+    const MAX_ROWS = 200;
+
+    function renderTable({ keepSelected = false } = {}) {
+      const prevSel = keepSelected ? table.selected : null;
       const head = [
         `   ${sortHead('fullName', 'Name')}`,
         sortHead('lastModifiedByName', 'Last Modified By'),
@@ -147,10 +152,10 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       ];
       if (!hasComponents(store, store.activeType)) {
         table.setData([head, ['  loading…', '', '', '']]);
-        screen.render();
         return;
       }
-      const rows = visibleRows(store);
+      const all = visibleRows(store);
+      const rows = all.slice(0, MAX_ROWS);
       const data = [head];
       for (const r of rows) {
         const mark = isSelected(store, r.type, r.fullName) ? '{green-fg}[x]{/green-fg}' : '[ ]';
@@ -161,11 +166,17 @@ export function runTui({ store, loadComponents, orgs = [] }) {
           shortDate(r.createdDate),
         ]);
       }
-      if (rows.length === 0) data.push(['  (no matches)', '', '', '']);
+      if (all.length === 0) data.push(['  (no matches)', '', '', '']);
+      else if (all.length > MAX_ROWS) {
+        data.push([`  … ${all.length - MAX_ROWS} more — type to filter`, '', '', '']);
+      }
       table.setData(data);
-      // never let the highlight sit on the header (row 0)
-      if (rows.length && table.selected < 1) table.select(1);
-      screen.render();
+      // setData resets the cursor to the header; restore it (or clamp to a row).
+      if (keepSelected && prevSel != null) {
+        table.select(Math.min(Math.max(prevSel, 1), data.length - 1));
+      } else if (rows.length && table.selected < 1) {
+        table.select(1);
+      }
     }
 
     function renderBasket() {
@@ -181,7 +192,6 @@ export function runTui({ store, loadComponents, orgs = [] }) {
         }
         basket.setContent(lines.join('\n'));
       }
-      screen.render();
     }
 
     function renderFooter() {
@@ -189,16 +199,26 @@ export function runTui({ store, loadComponents, orgs = [] }) {
         ' {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}enter{/cyan-fg} open type  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}tab/⇧tab{/cyan-fg} pane  {cyan-fg}r{/cyan-fg} refresh  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level\n' +
         ' {green-fg}b{/green-fg} build package.xml   {green-fg}v{/green-fg} validate   {green-fg}d{/green-fg} deploy   {red-fg}q{/red-fg} quit',
       );
-      screen.render();
     }
 
+    // Single paint per user action — render functions above only set content.
+    const paint = () => screen.render();
+
     function renderAll() {
-      renderHeader(); renderTypes(); renderTable(); renderBasket(); renderFooter();
+      renderHeader(); renderTypes(); renderTable(); renderBasket(); renderFooter(); paint();
+    }
+
+    // Update everything that changes when a selection toggles, keeping the
+    // table cursor exactly where it was, and paint once.
+    function refreshSelection() {
+      renderTable({ keepSelected: true });
+      renderBasket(); renderHeader(); renderTypes();
+      paint();
     }
 
     function status(msg) {
       footer.setContent(` {yellow-fg}${msg}{/yellow-fg}`);
-      screen.render();
+      paint();
     }
 
     // ---- data loading ----------------------------------------------------
@@ -214,7 +234,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
         return;
       }
       busy = false;
-      renderHeader(); renderTypes(); renderTable(); renderFooter();
+      renderHeader(); renderTypes(); renderTable(); renderFooter(); paint();
     }
 
     // ---- interactions ----------------------------------------------------
@@ -250,15 +270,14 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       const r = activeRow();
       if (!r) return;
       toggleSelect(store, r.type, r.fullName);
-      renderTable(); renderBasket(); renderHeader(); renderTypes();
-      focusPane(table);
+      refreshSelection(); // keeps the cursor where it is
     });
 
-    screen.key('a', () => { if (filtering || modal) return; selectAllVisible(store); renderAll(); focusPane(table); });
-    screen.key('c', () => { if (filtering || modal) return; clearVisible(store); renderAll(); focusPane(table); });
+    screen.key('a', () => { if (filtering || modal) return; selectAllVisible(store); refreshSelection(); });
+    screen.key('c', () => { if (filtering || modal) return; clearVisible(store); refreshSelection(); });
 
     for (let n = 1; n <= COLUMNS.length; n += 1) {
-      screen.key(String(n), () => { if (filtering || modal) return; setSort(store, COLUMNS[n - 1].key); renderTable(); });
+      screen.key(String(n), () => { if (filtering || modal) return; setSort(store, COLUMNS[n - 1].key); renderTable(); paint(); });
     }
 
     // ---- live filter -----------------------------------------------------
@@ -269,19 +288,25 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       filterBox.focus();
       screen.render();
     });
+    let filterTimer = null;
     filterBox.on('keypress', () => {
-      setImmediate(() => {
+      // Debounce: rebuild the table at most ~every 110ms while typing, not per char.
+      if (filterTimer) clearTimeout(filterTimer);
+      filterTimer = setTimeout(() => {
+        filterTimer = null;
         setFilter(store, filterBox.value || '');
         renderTable();
-        screen.render();
-      });
+        paint();
+      }, 110);
     });
     function endFilter(focusTable = true) {
+      if (filterTimer) { clearTimeout(filterTimer); filterTimer = null; }
       filtering = false;
       filterBox.style.border.fg = 'gray';
       setFilter(store, filterBox.value || '');
       renderTable();
       if (focusTable) { table.select(1); focusPane(table); }
+      else paint();
     }
     filterBox.on('submit', () => endFilter(true));
     filterBox.key('escape', () => { filterBox.cancel(); });
@@ -297,7 +322,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       if (filtering || modal) return;
       const i = TEST_LEVELS.indexOf(testLevel);
       testLevel = TEST_LEVELS[(i + 1) % TEST_LEVELS.length];
-      renderHeader(); renderFooter();
+      renderHeader(); renderFooter(); paint();
     });
 
     screen.key('t', () => {
