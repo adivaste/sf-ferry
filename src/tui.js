@@ -146,29 +146,29 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     let top = 0; // first visible index
 
     // ---- layout ----------------------------------------------------------
+    // Mirror the footer's metrics exactly: height 3, bordered (no padding).
     const header = blessed.box({
       parent: screen, top: 0, left: 0, height: 3, width: '100%',
-      tags: true, padding: { top: 1, bottom: 1 }, // vertical breathing room
-      style: { fg: 'white', bg: 236 }, // dark-grey bar (not blue)
+      tags: true, border: 'line',
+      style: { fg: 'white', bg: 236, border: { fg: 'gray' } }, // dark bar (not blue)
     });
-    // header rows 0-2, blank margin row 3, panes start at row 4
     const typesList = blessed.list({
-      parent: screen, label: ' Types ', top: 4, left: 0, width: '25%', bottom: 3,
+      parent: screen, label: ' Types ', top: 3, left: 0, width: '25%', bottom: 3,
       border: 'line', keys: true, mouse: true, tags: true,
       style: { selected: { bg: 'cyan', fg: 'black' }, border: { fg: 'cyan' }, label: { fg: 'cyan' } },
       scrollbar: { ch: ' ', style: { bg: 'cyan' } },
     });
     const filterBox = blessed.textbox({
-      parent: screen, label: ' Filter (/) ', top: 4, left: '25%', width: '45%', height: 3,
+      parent: screen, label: ' Filter (/) ', top: 3, left: '25%', width: '45%', height: 3,
       border: 'line', inputOnFocus: true, style: { border: { fg: 'gray' }, label: { fg: 'cyan' } },
     });
     const table = blessed.box({
-      parent: screen, label: ' Components ', top: 7, left: '25%', width: '45%', bottom: 3,
+      parent: screen, label: ' Components ', top: 6, left: '25%', width: '45%', bottom: 3,
       border: 'line', tags: true, keys: true, mouse: true, scrollable: false,
       style: { border: { fg: 'gray' }, label: { fg: 'cyan' } },
     });
     const basket = blessed.box({
-      parent: screen, label: ' Selected ', top: 4, left: '70%', right: 0, bottom: 3,
+      parent: screen, label: ' Selected ', top: 3, left: '70%', right: 0, bottom: 3,
       border: 'line', tags: true, scrollable: true, alwaysScroll: true, mouse: true, keys: true,
       scrollbar: { ch: ' ', style: { bg: 'green' } },
       style: { border: { fg: 'gray' }, label: { fg: 'green' } },
@@ -226,7 +226,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
 
     // ---- viewport helpers ------------------------------------------------
     function viewportHeight() {
-      const h = typeof table.height === 'number' && table.height > 0 ? table.height : screen.height - 10;
+      const h = typeof table.height === 'number' && table.height > 0 ? table.height : screen.height - 9;
       return Math.max(3, h - 2 - 1); // borders + in-table header row
     }
     function colWidths() {
