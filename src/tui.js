@@ -82,7 +82,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     // ---- layout ----------------------------------------------------------
     const header = blessed.box({
       parent: screen, top: 0, left: 0, height: 1, width: '100%',
-      tags: true, style: { fg: 'white', bg: 'blue' },
+      tags: true, style: { fg: 'white', bg: 236 }, // dark-grey bar (not blue)
     });
     const typesList = blessed.list({
       parent: screen, label: ' Types ', top: 1, left: 0, width: '25%', bottom: 3,
@@ -157,10 +157,14 @@ export function runTui({ store, loadComponents, orgs = [] }) {
 
     // ---- rendering -------------------------------------------------------
     function renderHeader() {
-      const tgt = store.targetOrg || '(press t to pick)';
+      const tgt = store.targetOrg || '(press t)';
+      const div = ' {gray-fg}│{/gray-fg} ';
       header.setContent(
-        ` {bold}sfm{/bold}  source: {yellow-fg}${store.sourceOrg}{/yellow-fg}  →  target: {yellow-fg}${tgt}{/yellow-fg}` +
-        `   test-level: {green-fg}${testLevel}{/green-fg}   selected: {green-fg}${selectionCount(store)}{/green-fg}`,
+        ` {bold}{cyan-bg}{black-fg} SFM {/black-fg}{/cyan-bg}{/bold}` + div +
+        `{gray-fg}source{/gray-fg} {cyan-fg}{bold}${store.sourceOrg}{/bold}{/cyan-fg} ` +
+        `{gray-fg}→{/gray-fg} {gray-fg}target{/gray-fg} {yellow-fg}{bold}${tgt}{/bold}{/yellow-fg}` + div +
+        `{gray-fg}tests{/gray-fg} {magenta-fg}{bold}${testLevel}{/bold}{/magenta-fg}` + div +
+        `{green-fg}{bold}✓ ${selectionCount(store)}{/bold} selected{/green-fg}`,
       );
     }
     function filteredTypes() {
