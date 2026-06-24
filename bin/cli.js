@@ -300,13 +300,15 @@ program
       process.stdin.resume();
     } catch { /* ignore */ }
 
-    if (result.action === 'quit') return;
+    // The live org Connection keeps a socket open, so the process won't exit on
+    // its own after blessed closes — exit explicitly for a clean shutdown.
+    if (result.action === 'quit') process.exit(0);
 
     if (result.action === 'build') {
       const { writeManifests } = await import('../src/manifest.js'); // pulls SDR — deferred until now
       await writeManifests(manifestDir, { apiVersion, changes: result.entries, destructive: [] });
       console.log(`\nWrote ${path.join(manifestDir, PACKAGE_FILE)} (${result.entries.length} components).`);
-      return;
+      process.exit(0);
     }
 
     if (cmdOpts.demo) {
@@ -314,13 +316,12 @@ program
       console.log(`  1. write package.xml (${result.entries.length} components)`);
       console.log(`  2. sf project retrieve start  (from ${store.sourceOrg})`);
       console.log(`  3. sf project deploy ${result.action === 'validate' ? 'validate' : 'start'}  -> ${result.targetOrg}  test-level ${result.testLevel}`);
-      return;
+      process.exit(0);
     }
 
     if (!result.targetOrg) {
       console.error('No target org chosen (press "t" in the UI, or pass --target).');
-      process.exitCode = 1;
-      return;
+      process.exit(1);
     }
 
     // Test classes for RunSpecifiedTests are now collected inside the TUI
@@ -328,8 +329,7 @@ program
     const tests = result.tests || [];
     if (result.testLevel === 'RunSpecifiedTests' && tests.length === 0) {
       console.error('RunSpecifiedTests requires at least one test class.');
-      process.exitCode = 1;
-      return;
+      process.exit(1);
     }
 
     const { retrieveFromSource, deployToTarget } = await import('../src/orgflow.js'); // pulls SDR
@@ -338,16 +338,17 @@ program
     const r = await retrieveFromSource({
       manifestDir, retrieveDir, sourceOrg: store.sourceOrg, entries: result.entries, apiVersion,
     });
-    if (r.code !== 0) { console.error(`\n${r.error || 'Retrieve failed.'}`); process.exitCode = r.code; return; }
+    if (r.code !== 0) { console.error(`\n${r.error || 'Retrieve failed.'}`); process.exit(r.code); }
 
     console.log(`\n2/2  ${result.action === 'validate' ? 'Validating' : 'Deploying'} to ${result.targetOrg} (test-level ${result.testLevel}) …`);
-    process.exitCode = await deployToTarget({
+    const deployCode = await deployToTarget({
       retrieveDir,
       targetOrg: result.targetOrg,
       testLevel: result.testLevel,
       tests,
       validate: result.action === 'validate',
     });
+    process.exit(deployCode);
   });
 
 program.parseAsync(process.argv);
