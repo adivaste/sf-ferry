@@ -11,6 +11,59 @@ library the `sf` CLI is built on), so member names for every metadata type
 (fields as `Object.Field__c`, LWC bundles, in-folder metadata, etc.) come out
 correct automatically.
 
+---
+
+## `sfm ui` — change-set-style selector (v2, live org → org)
+
+A full-screen terminal UI for migrating metadata between orgs (e.g. **uat → prod**)
+without change sets. Modeled on Gearset / the VS Code Org Browser.
+
+```bash
+sfm ui --source uat --target prod     # live: browse uat, deploy to prod
+sfm ui --demo                         # try it with fixture data, no org needed
+```
+
+```
+ sfm  source: uat  →  target: prod   test-level: RunLocalTests   selected: 12
+┌ Types ─────┐┌ Filter (/) ───────────┐┌ Selected ───────────┐
+│❯ ApexClass ││ acc                   ││ ApexClass (8)        │
+│  (12)✓     │└───────────────────────┘│  • AccountController │
+│  ApexTrigger│┌ Components ───────────┐│  • LeadService       │
+│  CustomObj ││ [x] Name ▲ │ Mod By │…││ LWC (2)              │
+│  LWC  (2)✓ ││ [x] AccountController …││  • invoiceList       │
+└────────────┘└───────────────────────┘└──────────────────────┘
+ ↑↓ move  enter open type  space check  a all  c clear  / filter  1-4 sort  t target  l test-level
+ b build package.xml   v validate   d deploy   q quit
+```
+
+**Why live (not local files):** the columns you actually want to sort by —
+**owner, created date, last modified** — only exist in the org's Metadata API
+(`listMetadata` → `FileProperties`). Local source files don't carry them. So the
+UI reads live metadata from the source org (reusing your existing `sf` login),
+**caches** it under `.sfm-cache/` (Refresh with `r`), and on deploy it retrieves
+the selected components from the source org and deploys them to the target —
+true org-to-org migration, no local project required.
+
+| Key | Action |
+|-----|--------|
+| `↑ ↓` | move within a pane |
+| `enter` | open the highlighted type (loads its components) |
+| `space` | check / uncheck the highlighted component |
+| `a` / `c` | select-all / clear (respects the current filter) |
+| `/` | focus the filter box (searches name + owner) |
+| `1`–`4` | sort by column; press again to reverse (or click the header) |
+| `t` | choose the target org · `l` cycle the test level |
+| `r` | refresh the current type from the org (bypass cache) |
+| `b` | write `package.xml` only · `v` validate · `d` deploy · `q` quit |
+
+`v` (validate) and `d` (deploy) hand off to the `sf` CLI after the UI closes, so
+deploy output streams normally. `RunSpecifiedTests` prompts for the test classes.
+
+> Manage orgs with `sfm orgs` (lists everything `sf` is logged into).
+> The earlier **local-source** workflow below (`add` / `delete` / `deploy`) still works unchanged.
+
+---
+
 ## Install
 
 ```bash

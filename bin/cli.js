@@ -19,6 +19,16 @@ import {
   preflight,
   runSf,
 } from '../src/deploy.js';
+import { listOrgs, connect, orgLabel } from '../src/org.js';
+import { describeTypes, listComponents, FOLDER_TYPES } from '../src/metadata.js';
+import {
+  createStore,
+  setTypes,
+  setComponents,
+} from '../src/store.js';
+import { runTui } from '../src/tui.js';
+import { retrieveFromSource, deployToTarget } from '../src/orgflow.js';
+import { DEMO_TYPES, DEMO_COMPONENTS } from '../src/demo.js';
 
 const program = new Command();
 
@@ -221,6 +231,125 @@ program
 
     const code = await runSf(args);
     process.exitCode = code;
+  });
+
+program
+  .command('orgs')
+  .description('List the orgs the sf CLI is authenticated to')
+  .action(async () => {
+    const orgs = await listOrgs();
+    if (orgs.length === 0) return console.log('No authenticated orgs. Run `sf org login web` first.');
+    for (const o of orgs) {
+      const alias = o.aliases?.length ? `${o.aliases.join(', ')}` : '(no alias)';
+      console.log(`  ${alias.padEnd(20)} ${o.username}${o.isExpired ? '  [EXPIRED]' : ''}`);
+    }
+  });
+
+program
+  .command('ui')
+  .description('Live, change-set-style metadata selector (org → org)')
+  .option('-s, --source <org>', 'source org to browse (alias or username)')
+  .option('-o, --target <org>', 'target org to deploy to')
+  .option('--demo', 'run with fixture data, no org connection')
+  .action(async (cmdOpts) => {
+    const { apiVersion, manifestDir } = settings(program.opts());
+    const retrieveDir = path.resolve('.sfm-retrieve');
+
+    // ---- build the store + a loadComponents callback (live or demo) ----
+    let store;
+    let loadInto;
+    let orgChoices = [];
+
+    if (cmdOpts.demo) {
+      store = createStore({ sourceOrg: 'DEMO', targetOrg: cmdOpts.target || 'DEMO-prod' });
+      setTypes(store, DEMO_TYPES);
+      loadInto = async (type) => {
+        setComponents(store, type, DEMO_COMPONENTS[type] || []);
+      };
+    } else {
+      const source = cmdOpts.source
+        || (await (async () => {
+          const orgs = await listOrgs();
+          if (orgs.length === 0) throw new Error('No authenticated orgs. Run `sf org login web`.');
+          return select({
+            message: 'Source org to browse',
+            choices: orgs.map((o) => ({ name: orgLabel(o), value: o.aliases?.[0] || o.username })),
+          });
+        })());
+
+      console.log(`Connecting to ${source} …`);
+      const conn = await connect(source);
+      console.log('Describing metadata types …');
+      const types = (await describeTypes(conn, apiVersion))
+        .filter((t) => !FOLDER_TYPES.has(t.name)); // folder types handled separately later
+
+      store = createStore({ sourceOrg: source, targetOrg: cmdOpts.target || '' });
+      setTypes(store, types);
+
+      const all = await listOrgs();
+      orgChoices = all
+        .filter((o) => (o.aliases?.[0] || o.username) !== source)
+        .map((o) => ({ label: orgLabel(o), value: o.aliases?.[0] || o.username }));
+
+      loadInto = async (type, { refresh = false } = {}) => {
+        const rows = await listComponents(conn, type, { apiVersion, orgKey: source, refresh });
+        setComponents(store, type, rows);
+      };
+    }
+
+    // ---- run the TUI ----
+    const result = await runTui({ store, loadComponents: loadInto, orgs: orgChoices });
+
+    if (result.action === 'quit') return;
+
+    if (result.action === 'build') {
+      await writeManifests(manifestDir, { apiVersion, changes: result.entries, destructive: [] });
+      console.log(`\nWrote ${path.join(manifestDir, PACKAGE_FILE)} (${result.entries.length} components).`);
+      return;
+    }
+
+    // validate / deploy => org-to-org
+    if (cmdOpts.demo) {
+      console.log('\n[demo] Would now:');
+      console.log(`  1. write package.xml (${result.entries.length} components)`);
+      console.log(`  2. sf project retrieve start  (from ${store.sourceOrg})`);
+      console.log(`  3. sf project deploy ${result.action === 'validate' ? 'validate' : 'start'}  -> ${result.targetOrg}  test-level ${result.testLevel}`);
+      return;
+    }
+
+    if (!result.targetOrg) {
+      console.error('No target org chosen (press "t" in the UI, or pass --target).');
+      process.exitCode = 1;
+      return;
+    }
+
+    let tests = [];
+    if (result.testLevel === 'RunSpecifiedTests') {
+      const { input } = await import('@inquirer/prompts');
+      const raw = await input({ message: 'Test classes to run (comma-separated):' });
+      tests = raw.split(',').map((s) => s.trim()).filter(Boolean);
+      if (tests.length === 0) {
+        console.error('RunSpecifiedTests requires at least one test class.');
+        process.exitCode = 1;
+        return;
+      }
+    }
+
+    console.log(`\n1/2  Retrieving ${result.entries.length} components from ${store.sourceOrg} …`);
+    const rc = await retrieveFromSource({
+      manifestDir, retrieveDir, sourceOrg: store.sourceOrg, entries: result.entries, apiVersion,
+    });
+    if (rc !== 0) { console.error('Retrieve failed.'); process.exitCode = rc; return; }
+
+    console.log(`\n2/2  ${result.action === 'validate' ? 'Validating' : 'Deploying'} to ${result.targetOrg} (test-level ${result.testLevel}) …`);
+    const dc = await deployToTarget({
+      retrieveDir,
+      targetOrg: result.targetOrg,
+      testLevel: result.testLevel,
+      tests,
+      validate: result.action === 'validate',
+    });
+    process.exitCode = dc;
   });
 
 program.parseAsync(process.argv);
