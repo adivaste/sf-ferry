@@ -186,7 +186,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
 
     function renderFooter() {
       footer.setContent(
-        ' {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}enter{/cyan-fg} open type  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}tab{/cyan-fg} pane  {cyan-fg}r{/cyan-fg} refresh  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level\n' +
+        ' {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}enter{/cyan-fg} open type  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}tab/⇧tab{/cyan-fg} pane  {cyan-fg}r{/cyan-fg} refresh  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level\n' +
         ' {green-fg}b{/green-fg} build package.xml   {green-fg}v{/green-fg} validate   {green-fg}d{/green-fg} deploy   {red-fg}q{/red-fg} quit',
       );
       screen.render();
@@ -340,11 +340,15 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       resolve({ action: 'quit' });
     });
 
-    screen.key('tab', () => {
+    function cyclePane(dir) {
       if (filtering || modal) return;
       const cur = panes.findIndex((el) => el.focused);
-      focusPane(panes[(cur + 1) % panes.length]);
-    });
+      const base = cur < 0 ? 0 : cur;
+      const next = (base + dir + panes.length) % panes.length;
+      focusPane(panes[next]);
+    }
+    screen.key('tab', () => cyclePane(1));
+    screen.key('S-tab', () => cyclePane(-1)); // shift+tab → previous pane
 
     function cleanup() {
       program.emit = realEmit; // restore original emitter
