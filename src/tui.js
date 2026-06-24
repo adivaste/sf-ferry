@@ -29,6 +29,68 @@ const shortDate = (d) => (d ? String(d).slice(0, 10) : '');
 // Escape literal braces so component names can't break blessed tag parsing.
 const esc = (s) => s.replace(/\{/g, '{open}').replace(/\}/g, '{close}');
 
+// fzf-style: underline+bold the characters that matched the filter tokens.
+function highlightMatches(text, tokens) {
+  if (!tokens || tokens.length === 0) return esc(text);
+  const lower = text.toLowerCase();
+  const hit = new Array(text.length).fill(false);
+  for (const tok of tokens) {
+    if (!tok) continue;
+    let i = lower.indexOf(tok);
+    while (i !== -1) {
+      for (let k = i; k < i + tok.length; k += 1) hit[k] = true;
+      i = lower.indexOf(tok, i + 1);
+    }
+  }
+  let out = '';
+  let run = '';
+  let runHit = false;
+  const flush = () => {
+    if (!run) return;
+    out += runHit ? `{underline}{bold}${esc(run)}{/bold}{/underline}` : esc(run);
+    run = '';
+  };
+  for (let i = 0; i < text.length; i += 1) {
+    if (hit[i] !== runHit) { flush(); runHit = hit[i]; }
+    run += text[i];
+  }
+  flush();
+  return out;
+}
+
+const SPIN_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+const HELP_TEXT = [
+  '{bold}{cyan-fg}Navigation{/cyan-fg}{/bold}',
+  '  ↑ ↓  /  j k       move',
+  '  PgUp / PgDn       page up / down',
+  '  g / G             jump to top / bottom',
+  '  tab / shift+tab   switch pane',
+  '',
+  '{bold}{cyan-fg}Types pane{/cyan-fg}{/bold}',
+  '  type…             filter types (picklist)',
+  '  enter             open the highlighted type',
+  '',
+  '{bold}{cyan-fg}Components pane{/cyan-fg}{/bold}',
+  '  space             check / uncheck',
+  '  a / c             select all / clear (current filter)',
+  '  /                 filter rows (matches name + owner)',
+  '  1 2 3 4           sort by column (press again to reverse)',
+  '',
+  '{bold}{cyan-fg}Layout{/cyan-fg}{/bold}',
+  '  Ctrl+B            hide / show the Types panel',
+  '  Alt+B             hide / show the Selected panel',
+  '',
+  '{bold}{cyan-fg}Actions{/cyan-fg}{/bold}',
+  '  t                 choose target org',
+  '  l                 cycle test level',
+  '  r                 refresh current type from the org',
+  '  b                 write package.xml only',
+  '  v / d             validate / deploy (org → org)',
+  '  ? / Esc           close this help',
+  '  q                 quit',
+].join('\n');
+
 /**
  * Launch the interactive selection screen.
  *
@@ -73,6 +135,10 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     let typeFilter = ''; // type-ahead filter for the Types pane
     let leftVisible = true; // Types pane (Ctrl+B)
     let rightVisible = true; // Selected pane (Alt+B)
+    let spinTimer = null;
+    let spinFrame = 0;
+    let helpBox = null;
+    let focusedPane = null;
 
     // virtualized list state
     let view = []; // cached filtered + sorted rows for the active type
@@ -115,9 +181,29 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       for (const p of panes) p.style.border.fg = 'gray';
       el.style.border.fg = 'cyan';
       el.focus();
+      focusedPane = el;
+      renderFooter();
       screen.render();
     }
     const paint = () => screen.render();
+
+    function startSpin(msg) {
+      stopSpin();
+      spinFrame = 0;
+      footer.setContent(` {cyan-fg}${SPIN_FRAMES[0]}{/cyan-fg} ${msg}`);
+      paint();
+      spinTimer = setInterval(() => {
+        try {
+          spinFrame = (spinFrame + 1) % SPIN_FRAMES.length;
+          footer.setContent(` {cyan-fg}${SPIN_FRAMES[spinFrame]}{/cyan-fg} ${msg}`);
+          screen.render();
+        } catch { /* screen torn down */ }
+      }, 90);
+      if (spinTimer.unref) spinTimer.unref(); // never keep the process alive
+    }
+    function stopSpin() {
+      if (spinTimer) { clearInterval(spinTimer); spinTimer = null; }
+    }
 
     // Collapse/expand the side panels so the center table can use the space.
     function relayout() {
@@ -212,15 +298,29 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       } else if (total === 0) {
         lines.push('  {gray-fg}(no matches){/gray-fg}');
       } else {
+        const term = store.filter.trim().toLowerCase();
+        const tokens = term ? term.split(/\s+/) : [];
         const slice = view.slice(top, top + vh);
         for (let i = 0; i < slice.length; i += 1) {
           const r = slice[i];
           const gi = top + i;
           const sel = isSelected(store, r.type, r.fullName);
-          const raw = `${sel ? '[x]' : '[ ]'} ${pad(trunc(r.fullName, nameW), nameW)} ${pad(trunc(r.lastModifiedByName, byW), byW)} ${pad(shortDate(r.lastModifiedDate), dateW)} ${pad(shortDate(r.createdDate), dateW)}`;
-          if (gi === cursor) lines.push(`{cyan-bg}{black-fg}${esc(pad(raw, inner))}{/black-fg}{/cyan-bg}`);
-          else if (sel) lines.push(`{green-fg}${esc(raw)}{/green-fg}`);
-          else lines.push(esc(raw));
+          const mark = sel ? '[x]' : '[ ]';
+          const namePlain = pad(trunc(r.fullName, nameW), nameW);
+          const byPlain = pad(trunc(r.lastModifiedByName, byW), byW);
+          const mdPlain = pad(shortDate(r.lastModifiedDate), dateW);
+          const cdPlain = pad(shortDate(r.createdDate), dateW);
+          const plainRaw = `${mark} ${namePlain} ${byPlain} ${mdPlain} ${cdPlain}`;
+          const nameR = tokens.length ? highlightMatches(namePlain, tokens) : esc(namePlain);
+          const renderedRaw = `${mark} ${nameR} ${esc(byPlain)} ${esc(mdPlain)} ${esc(cdPlain)}`;
+          if (gi === cursor) {
+            const padN = Math.max(0, inner - plainRaw.length);
+            lines.push(`{cyan-bg}{black-fg}${renderedRaw}${' '.repeat(padN)}{/black-fg}{/cyan-bg}`);
+          } else if (sel) {
+            lines.push(`{green-fg}${renderedRaw}{/green-fg}`);
+          } else {
+            lines.push(renderedRaw);
+          }
         }
       }
       table.setContent(lines.join('\n'));
@@ -241,9 +341,18 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       basket.setContent(lines.join('\n'));
     }
     function renderFooter() {
+      // Context-aware: show the keys relevant to the focused pane.
+      let line1;
+      if (typesList.focused) {
+        line1 = ' {cyan-fg}type{/cyan-fg} find type  {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}enter{/cyan-fg} open  {cyan-fg}^B{/cyan-fg} hide panel';
+      } else if (basket.focused) {
+        line1 = ' {cyan-fg}↑↓{/cyan-fg} scroll  {cyan-fg}tab{/cyan-fg} pane  {cyan-fg}M-b{/cyan-fg} hide panel';
+      } else {
+        line1 = ' {cyan-fg}↑↓/jk{/cyan-fg} move  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level';
+      }
       footer.setContent(
-        ' {cyan-fg}↑↓/jk{/cyan-fg} move  {cyan-fg}type{/cyan-fg} find type  {cyan-fg}enter{/cyan-fg} open  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter rows  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}tab{/cyan-fg} pane  {cyan-fg}r{/cyan-fg} refresh  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level\n' +
-        ' {green-fg}b{/green-fg} build   {green-fg}v{/green-fg} validate   {green-fg}d{/green-fg} deploy   {cyan-fg}^B{/cyan-fg} hide left   {cyan-fg}M-b{/cyan-fg} hide right   {red-fg}q{/red-fg} quit',
+        `${line1}\n` +
+        ' {green-fg}b{/green-fg} build   {green-fg}v{/green-fg} validate   {green-fg}d{/green-fg} deploy   {cyan-fg}tab{/cyan-fg} pane   {cyan-fg}?{/cyan-fg} help   {red-fg}q{/red-fg} quit',
       );
     }
     function renderAll() {
@@ -258,14 +367,16 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     async function ensureLoaded(type, { refresh = false } = {}) {
       if (hasComponents(store, type) && !refresh) { recomputeView({ resetCursor: true }); renderTable(); paint(); return; }
       busy = true;
-      status(`Loading ${type} from ${store.sourceOrg} …`);
+      startSpin(`Loading ${type} from ${store.sourceOrg} …`);
       try {
         await loadComponents(type, { refresh });
       } catch (e) {
+        stopSpin();
         status(`Error loading ${type}: ${e.message}`);
         busy = false;
         return;
       }
+      stopSpin();
       busy = false;
       recomputeView({ resetCursor: true });
       renderHeader(); renderTypes(); renderTable(); renderFooter(); paint();
@@ -316,7 +427,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
         return;
       }
       const printable = ch && ch.length === 1 && !key.ctrl && !key.meta
-        && ch >= ' ' && ch !== ' ' && ch !== '/';
+        && ch >= ' ' && ch !== ' ' && ch !== '/' && ch !== '?';
       if (printable) {
         typeFilter += ch;
         renderTypes();
@@ -412,7 +523,31 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       picker.key('q', close);
     });
 
-    function cleanup() { removeDedupe(); }
+    function cleanup() { stopSpin(); removeDedupe(); }
+
+    function toggleHelp() {
+      if (helpBox) {
+        helpBox.destroy();
+        helpBox = null;
+        modal = false;
+        focusPane(focusedPane || table);
+        return;
+      }
+      modal = true;
+      helpBox = blessed.box({
+        parent: screen, top: 'center', left: 'center', width: '62%', height: '80%',
+        border: 'line', tags: true, scrollable: true, alwaysScroll: true, keys: true, mouse: true,
+        label: ' Keybindings — ? or Esc to close ',
+        padding: { left: 1, right: 1 },
+        style: { border: { fg: 'cyan' }, label: { fg: 'cyan' } },
+        scrollbar: { ch: ' ', style: { bg: 'cyan' } },
+      });
+      helpBox.setContent(HELP_TEXT);
+      helpBox.key(['escape', 'q', '?'], toggleHelp);
+      helpBox.focus();
+      paint();
+    }
+    screen.key('?', () => { if (filtering || modal) return; toggleHelp(); });
 
     // In-TUI prompt for RunSpecifiedTests so we never hand stdin off to another
     // prompt after blessed (which leaves the terminal in raw mode → no input).
