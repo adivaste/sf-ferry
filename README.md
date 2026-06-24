@@ -54,6 +54,7 @@ true org-to-org migration, no local project required.
 | `/` | focus the filter box (searches name + owner) |
 | `1`–`4` | sort by column; press again to reverse (or click the header) |
 | `t` | choose the target org · `l` cycle the test level |
+| `Ctrl+B` / `Alt+B` | hide/show the left (Types) / right (Selected) panel to widen the table |
 | `r` | refresh the current type from the org (bypass cache) |
 | `b` | write `package.xml` only · `v` validate · `d` deploy · `q` quit |
 
