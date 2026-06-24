@@ -145,10 +145,11 @@ add *and* remove — just uncheck what you no longer want. This applies to `add`
 `delete`, and `remove`.
 
 ### Test levels (same as a real deployment)
-- `NoTestRun` — sandbox/scratch only
+- `NoTestRun` — **deploy only** (e.g. metadata with no Apex, like a Custom Notification Type). `sf` rejects it for *validate*, so a `NoTestRun` validate automatically runs as a check-only `deploy --dry-run`.
 - `RunSpecifiedTests` — prompts you to pick the test classes (or pass `-t`)
 - `RunLocalTests` — all local tests (typical for production)
 - `RunAllTestsInOrg`
+- `RunRelevantTests` (Beta) — only tests relevant to the changed classes
 
 `--check` runs a **validate-only** (check-only) deploy — nothing is committed,
 exactly like "Validate" in the change-set UI. You can later quick-deploy the

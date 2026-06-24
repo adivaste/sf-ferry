@@ -23,4 +23,11 @@ const va = buildOrgDeployArgs({ zipPath: 'z.zip', targetOrg: 'prod', testLevel: 
 ok('validate mode', va.includes('validate') && !va.includes('start'));
 ok('RunSpecifiedTests passes --tests', va.filter((x) => x === '--tests').length === 2 && va.includes('T1') && va.includes('T2'));
 
+// validate + NoTestRun is invalid for `deploy validate`; fall back to a
+// check-only `deploy start --dry-run`.
+const na = buildOrgDeployArgs({ zipPath: 'z.zip', targetOrg: 'prod', testLevel: 'NoTestRun', validate: true });
+ok('NoTestRun validate -> start --dry-run', na.includes('start') && !na.includes('validate') && na.includes('--dry-run'));
+const nd = buildOrgDeployArgs({ zipPath: 'z.zip', targetOrg: 'prod', testLevel: 'NoTestRun', validate: false });
+ok('NoTestRun deploy -> plain start', nd.includes('start') && !nd.includes('--dry-run'));
+
 console.log(`\n${n} orgflow checks passed`);

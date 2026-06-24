@@ -26,14 +26,15 @@ const timer = setTimeout(() => { console.log('RUNTESTS FAIL: timed out'); proces
 const p = runTui({ store, loadComponents, orgs: [] });
 const at = (ms, fn) => setTimeout(fn, ms);
 
-// TEST_LEVELS = [NoTestRun, RunSpecifiedTests, RunLocalTests, RunAllTestsInOrg]
-// default is RunLocalTests; 'l' x3 -> RunSpecifiedTests.
+// TEST_LEVELS = [NoTestRun, RunSpecifiedTests, RunLocalTests, RunAllTestsInOrg, RunRelevantTests]
+// default is RunLocalTests (idx 2); 'l' x4 cycles -> RunSpecifiedTests (idx 1).
 at(300, () => input.write('\r'));      // open ApexClass, focus table
 at(450, () => input.write(' '));       // select the highlighted component
 at(600, () => input.write('l'));       // -> RunAllTestsInOrg
-at(700, () => input.write('l'));       // -> NoTestRun
-at(800, () => input.write('l'));       // -> RunSpecifiedTests
-at(950, () => input.write('d'));       // deploy -> opens in-TUI test prompt
+at(700, () => input.write('l'));       // -> RunRelevantTests
+at(800, () => input.write('l'));       // -> NoTestRun
+at(900, () => input.write('l'));       // -> RunSpecifiedTests
+at(1050, () => input.write('d'));      // deploy -> opens in-TUI test prompt
 at(1200, () => input.write('MyControllerTest, AccountServiceTest')); // type (paste-like)
 at(1450, () => input.write('\r'));     // submit
 
