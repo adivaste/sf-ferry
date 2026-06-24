@@ -23,10 +23,10 @@ const shortDate = (d) => (d ? String(d).slice(0, 10) : '');
 /**
  * Launch the interactive selection screen.
  *
- * @param store          the state store (already seeded with types)
- * @param loadComponents async (type) => rows[]   — fetch + cache live components
- * @param orgs           [{label, value}] known target orgs
- * Resolves with { action, testLevel, targetOrg, entries } when the user acts.
+ * @param store          state store (seeded with types)
+ * @param loadComponents async (type, {refresh}) => void  — fetch + cache live components
+ * @param orgs           [{label, value}] candidate target orgs
+ * Resolves with { action, testLevel, targetOrg, entries }.
  */
 export function runTui({ store, loadComponents, orgs = [] }) {
   return new Promise((resolve) => {
@@ -37,8 +37,32 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       autoPadding: true,
     });
 
+    // --- de-duplicate doubled keypresses (Node-on-Windows stdin quirk) -----
+    // The spurious duplicate arrives within ~1ms; OS key auto-repeat is ~30ms+
+    // apart, so a 12ms guard drops only the bogus repeat.
+    const program = screen.program;
+    let lastSig = '';
+    let lastAt = 0;
+    const realEmit = program.emit.bind(program);
+    program.emit = (type, ...args) => {
+      if (type === 'keypress') {
+        const key = args[1];
+        const sig = `${key ? key.full || key.name : ''}|${args[0] || ''}`;
+        const now = Date.now();
+        if (sig === lastSig && now - lastAt < 12) {
+          lastAt = now;
+          return false;
+        }
+        lastSig = sig;
+        lastAt = now;
+      }
+      return realEmit(type, ...args);
+    };
+
     let testLevel = 'RunLocalTests';
     let busy = false;
+    let filtering = false; // filter textbox has focus
+    let modal = false; // org picker open
 
     // ---- layout ----------------------------------------------------------
     const header = blessed.box({
@@ -49,7 +73,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     const typesList = blessed.list({
       parent: screen, label: ' Types ', top: 1, left: 0, width: '25%', bottom: 3,
       border: 'line', keys: true, mouse: true, tags: true,
-      style: { selected: { bg: 'cyan', fg: 'black' }, border: { fg: 'gray' }, label: { fg: 'cyan' } },
+      style: { selected: { bg: 'cyan', fg: 'black' }, border: { fg: 'cyan' }, label: { fg: 'cyan' } },
       scrollbar: { ch: ' ', style: { bg: 'cyan' } },
     });
 
@@ -81,9 +105,17 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       border: 'line', tags: true, style: { border: { fg: 'gray' } },
     });
 
+    const panes = [typesList, table, basket];
+    function focusPane(el) {
+      for (const p of panes) p.style.border.fg = 'gray';
+      el.style.border.fg = 'cyan';
+      el.focus();
+      screen.render();
+    }
+
     // ---- rendering -------------------------------------------------------
     function renderHeader() {
-      const tgt = store.targetOrg || '(no target)';
+      const tgt = store.targetOrg || '(press t to pick)';
       header.setContent(
         ` {bold}sfm{/bold}  source: {yellow-fg}${store.sourceOrg}{/yellow-fg}  →  target: {yellow-fg}${tgt}{/yellow-fg}` +
         `   test-level: {green-fg}${testLevel}{/green-fg}   selected: {green-fg}${selectionCount(store)}{/green-fg}`,
@@ -94,25 +126,24 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       const items = store.types.map((t) => {
         const sel = selectedCountForType(store, t.name);
         const tag = sel ? ` {green-fg}(${sel})✓{/green-fg}` : '';
-        const active = t.name === store.activeType ? '{cyan-fg}❯{/cyan-fg} ' : '  ';
-        return `${active}${t.name}${tag}`;
+        return `${t.name}${tag}`;
       });
       typesList.setItems(items);
       const idx = store.types.findIndex((t) => t.name === store.activeType);
       if (idx >= 0) typesList.select(idx);
     }
 
-    function header4(key, label) {
+    function sortHead(key, label) {
       if (store.sortKey !== key) return label;
       return `${label} ${store.sortDir === 1 ? '▲' : '▼'}`;
     }
 
     function renderTable() {
       const head = [
-        '   ' + header4('fullName', 'Name'),
-        header4('lastModifiedByName', 'Last Modified By'),
-        header4('lastModifiedDate', 'Last Modified'),
-        header4('createdDate', 'Created'),
+        `   ${sortHead('fullName', 'Name')}`,
+        sortHead('lastModifiedByName', 'Last Modified By'),
+        sortHead('lastModifiedDate', 'Last Modified'),
+        sortHead('createdDate', 'Created'),
       ];
       if (!hasComponents(store, store.activeType)) {
         table.setData([head, ['  loading…', '', '', '']]);
@@ -132,13 +163,15 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       }
       if (rows.length === 0) data.push(['  (no matches)', '', '', '']);
       table.setData(data);
+      // never let the highlight sit on the header (row 0)
+      if (rows.length && table.selected < 1) table.select(1);
       screen.render();
     }
 
     function renderBasket() {
       const groups = selectionGrouped(store);
       if (groups.length === 0) {
-        basket.setContent('{gray-fg}Nothing selected yet.\nSpace to check a row.{/gray-fg}');
+        basket.setContent('{gray-fg}Nothing selected yet.\nHighlight a row and press space.{/gray-fg}');
       } else {
         const lines = [];
         for (const g of groups) {
@@ -153,7 +186,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
 
     function renderFooter() {
       footer.setContent(
-        ' {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}enter{/cyan-fg} open type  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}r{/cyan-fg} refresh  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level\n' +
+        ' {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}enter{/cyan-fg} open type  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}tab{/cyan-fg} pane  {cyan-fg}r{/cyan-fg} refresh  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level\n' +
         ' {green-fg}b{/green-fg} build package.xml   {green-fg}v{/green-fg} validate   {green-fg}d{/green-fg} deploy   {red-fg}q{/red-fg} quit',
       );
       screen.render();
@@ -172,14 +205,16 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     async function ensureLoaded(type, { refresh = false } = {}) {
       if (hasComponents(store, type) && !refresh) return;
       busy = true;
-      status(`Loading ${type} from ${store.sourceOrg}…`);
+      status(`Loading ${type} from ${store.sourceOrg} …`);
       try {
         await loadComponents(type, { refresh });
       } catch (e) {
         status(`Error loading ${type}: ${e.message}`);
+        busy = false;
+        return;
       }
       busy = false;
-      renderAll();
+      renderHeader(); renderTypes(); renderTable(); renderFooter();
     }
 
     // ---- interactions ----------------------------------------------------
@@ -187,106 +222,140 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       const t = store.types[index];
       if (!t) return;
       setActiveType(store, t.name);
+      filterBox.clearValue();
       renderAll();
       await ensureLoaded(t.name);
-      table.focus();
+      table.select(1);
+      focusPane(table);
     });
 
     function activeRow() {
       const rows = visibleRows(store);
-      // listtable selected index includes the header row at 0
-      const i = table.selected - 1;
+      const i = table.selected - 1; // header occupies row 0
       return i >= 0 && i < rows.length ? rows[i] : null;
     }
 
+    // keep the highlight off the header after the table's own key handling
+    table.on('keypress', () => {
+      setImmediate(() => {
+        try {
+          if (screen.destroyed) return;
+          if (table.selected < 1) { table.select(1); screen.render(); }
+        } catch { /* screen torn down mid-key */ }
+      });
+    });
+
     screen.key('space', () => {
-      if (busy) return;
+      if (filtering || modal || busy) return;
       const r = activeRow();
       if (!r) return;
       toggleSelect(store, r.type, r.fullName);
       renderTable(); renderBasket(); renderHeader(); renderTypes();
+      focusPane(table);
     });
 
-    screen.key('a', () => { selectAllVisible(store); renderAll(); });
-    screen.key('c', () => { clearVisible(store); renderAll(); });
+    screen.key('a', () => { if (filtering || modal) return; selectAllVisible(store); renderAll(); focusPane(table); });
+    screen.key('c', () => { if (filtering || modal) return; clearVisible(store); renderAll(); focusPane(table); });
 
-    // sort by column number 1..4, or click a header cell
     for (let n = 1; n <= COLUMNS.length; n += 1) {
-      screen.key(String(n), () => { setSort(store, COLUMNS[n - 1].key); renderTable(); });
+      screen.key(String(n), () => { if (filtering || modal) return; setSort(store, COLUMNS[n - 1].key); renderTable(); });
     }
-    table.on('click', (data) => {
-      // Clicking the top (header) row cycles that column's sort.
-      const rel = data.y - (table.atop + (table.iheight ? 1 : 1));
-      if (rel <= 0) {
-        const innerW = table.width - 2;
-        const colW = innerW / COLUMNS.length;
-        const col = Math.min(COLUMNS.length - 1, Math.max(0, Math.floor((data.x - table.aleft - 1) / colW)));
-        setSort(store, COLUMNS[col].key);
-        renderTable();
-      }
-    });
 
-    screen.key('/', () => { filterBox.focus(); });
-    filterBox.on('submit', (val) => { setFilter(store, val || ''); renderTable(); table.focus(); });
-    filterBox.on('cancel', () => { filterBox.clearValue(); setFilter(store, ''); renderTable(); table.focus(); });
+    // ---- live filter -----------------------------------------------------
+    screen.key('/', () => {
+      if (modal) return;
+      filtering = true;
+      filterBox.style.border.fg = 'cyan';
+      filterBox.focus();
+      screen.render();
+    });
+    filterBox.on('keypress', () => {
+      setImmediate(() => {
+        setFilter(store, filterBox.value || '');
+        renderTable();
+        screen.render();
+      });
+    });
+    function endFilter(focusTable = true) {
+      filtering = false;
+      filterBox.style.border.fg = 'gray';
+      setFilter(store, filterBox.value || '');
+      renderTable();
+      if (focusTable) { table.select(1); focusPane(table); }
+    }
+    filterBox.on('submit', () => endFilter(true));
     filterBox.key('escape', () => { filterBox.cancel(); });
+    filterBox.on('cancel', () => { filterBox.clearValue(); endFilter(true); });
 
     screen.key('r', async () => {
-      if (busy) return;
+      if (filtering || modal || busy) return;
       await ensureLoaded(store.activeType, { refresh: true });
-      table.focus();
+      focusPane(table);
     });
 
     screen.key('l', () => {
+      if (filtering || modal) return;
       const i = TEST_LEVELS.indexOf(testLevel);
       testLevel = TEST_LEVELS[(i + 1) % TEST_LEVELS.length];
       renderHeader(); renderFooter();
     });
 
     screen.key('t', () => {
-      if (orgs.length === 0) { status('No other orgs found.'); return; }
+      if (filtering || modal) return;
+      if (orgs.length === 0) { status('No other orgs found (pass --target).'); return; }
+      modal = true;
       const picker = blessed.list({
-        parent: screen, label: ' Pick target org ', top: 'center', left: 'center',
-        width: '50%', height: '50%', border: 'line', keys: true, mouse: true,
+        parent: screen, label: ' Pick target org (esc to cancel) ', top: 'center', left: 'center',
+        width: '60%', height: '60%', border: 'line', keys: true, mouse: true,
         items: orgs.map((o) => o.label),
-        style: { selected: { bg: 'cyan', fg: 'black' }, border: { fg: 'cyan' } },
+        style: { selected: { bg: 'cyan', fg: 'black' }, border: { fg: 'cyan' }, label: { fg: 'cyan' } },
+        scrollbar: { ch: ' ', style: { bg: 'cyan' } },
       });
       picker.focus();
-      picker.on('select', (_i, idx) => {
-        store.targetOrg = orgs[idx].value;
-        picker.destroy();
-        renderHeader(); renderFooter(); table.focus();
-      });
-      picker.key('escape', () => { picker.destroy(); renderFooter(); table.focus(); });
       screen.render();
+      const close = () => { modal = false; picker.destroy(); renderFooter(); focusPane(table); };
+      picker.on('select', (_i, idx) => { store.targetOrg = orgs[idx].value; renderHeader(); close(); });
+      picker.key('escape', close);
+      picker.key('q', close);
     });
 
     function finish(action) {
+      if (filtering || modal) return;
       if (action !== 'build' && selectionCount(store) === 0) {
         status('Select at least one component first.');
         return;
       }
+      cleanup();
       screen.destroy();
       resolve({ action, testLevel, targetOrg: store.targetOrg, entries: manifestEntries(store) });
     }
 
-    screen.key('b', () => finish('build'));
-    screen.key('v', () => finish('validate'));
-    screen.key('d', () => finish('deploy'));
-    screen.key(['q', 'C-c'], () => { screen.destroy(); resolve({ action: 'quit' }); });
-
-    // tab cycles focus between the three panes
-    screen.key('tab', () => {
-      const order = [typesList, table, basket];
-      const cur = order.findIndex((el) => el.focused);
-      order[(cur + 1) % order.length].focus();
-      screen.render();
+    screen.key('b', () => { if (filtering || modal) return; finish('build'); });
+    screen.key('v', () => { if (filtering || modal) return; finish('validate'); });
+    screen.key('d', () => { if (filtering || modal) return; finish('deploy'); });
+    screen.key(['q', 'C-c'], () => {
+      if (filtering || modal) return;
+      cleanup();
+      screen.destroy();
+      resolve({ action: 'quit' });
     });
+
+    screen.key('tab', () => {
+      if (filtering || modal) return;
+      const cur = panes.findIndex((el) => el.focused);
+      focusPane(panes[(cur + 1) % panes.length]);
+    });
+
+    function cleanup() {
+      program.emit = realEmit; // restore original emitter
+    }
 
     // ---- boot ------------------------------------------------------------
     renderAll();
-    typesList.focus();
-    if (store.activeType) ensureLoaded(store.activeType).then(() => table.focus());
+    focusPane(typesList); // start on the type list; enter opens a type
+    if (store.activeType) {
+      ensureLoaded(store.activeType); // warm the first type in the background
+    }
     screen.render();
   });
 }

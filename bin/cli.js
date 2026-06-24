@@ -298,6 +298,16 @@ program
     }
 
     // ---- run the TUI ----
+    // Detach any stdin listeners left by the inquirer source-org prompt so
+    // blessed is the sole keypress consumer (otherwise keys fire twice).
+    try {
+      process.stdin.removeAllListeners('keypress');
+      process.stdin.removeAllListeners('data');
+      process.stdin.removeAllListeners('readable');
+      if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(false);
+      process.stdin.pause();
+    } catch { /* ignore */ }
+
     const result = await runTui({ store, loadComponents: loadInto, orgs: orgChoices });
 
     if (result.action === 'quit') return;
