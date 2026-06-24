@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { PACKAGE_FILE, writeManifests } from './manifest.js';
-import { TEST_LEVELS } from './deploy.js';
+import { PACKAGE_FILE, TEST_LEVELS } from './constants.js';
+import { writeManifests } from './manifest.js';
 
 export { TEST_LEVELS };
 

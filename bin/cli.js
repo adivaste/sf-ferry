@@ -1,34 +1,13 @@
 #!/usr/bin/env node
 import path from 'node:path';
 import { Command } from 'commander';
-import { select } from '@inquirer/prompts';
 import { resolveProject } from '../src/config.js';
-import { scanSource } from '../src/scan.js';
-import { pickComponents, pickTestClasses } from '../src/select.js';
-import {
-  DESTRUCTIVE_FILE,
-  PACKAGE_FILE,
-  loadState,
-  mergeEntries,
-  saveState,
-  writeManifests,
-} from '../src/manifest.js';
-import {
-  TEST_LEVELS,
-  buildDeployArgs,
-  preflight,
-  runSf,
-} from '../src/deploy.js';
-import { listOrgs, connect, orgLabel } from '../src/org.js';
-import { describeTypes, listComponents, FOLDER_TYPES } from '../src/metadata.js';
-import {
-  createStore,
-  setTypes,
-  setComponents,
-} from '../src/store.js';
-import { runTui } from '../src/tui.js';
-import { retrieveFromSource, deployToTarget } from '../src/orgflow.js';
-import { DEMO_TYPES, DEMO_COMPONENTS } from '../src/demo.js';
+import { TEST_LEVELS, PACKAGE_FILE, DESTRUCTIVE_FILE } from '../src/constants.js';
+import { loadState, saveState, mergeEntries } from '../src/state.js';
+
+// NOTE: heavy modules (SDR ~2.3s, @salesforce/core ~1.8s, blessed, inquirer)
+// are imported lazily inside the actions that need them, so light commands
+// (--help, show, clear, orgs) start almost instantly.
 
 const program = new Command();
 
@@ -48,7 +27,8 @@ function settings(opts) {
   return { sourceDir, apiVersion, manifestDir };
 }
 
-function loadComponents(sourceDir) {
+async function scanLocal(sourceDir) {
+  const { scanSource } = await import('../src/scan.js'); // pulls SDR
   process.stdout.write(`Scanning ${sourceDir} ...\n`);
   const items = scanSource(sourceDir);
   process.stdout.write(`Found ${items.length} components.\n`);
@@ -57,6 +37,7 @@ function loadComponents(sourceDir) {
 
 async function regenerate(manifestDir, state) {
   saveState(manifestDir, state);
+  const { writeManifests } = await import('../src/manifest.js'); // pulls SDR
   const written = await writeManifests(manifestDir, state);
   console.log(`\nUpdated: ${written.map((f) => path.join(manifestDir, f)).join(', ')}`);
   console.log(`Selection: ${state.changes.length} change(s), ${state.destructive.length} deletion(s).`);
@@ -67,10 +48,10 @@ program
   .description('Search and select components to ADD/UPDATE (package.xml)')
   .action(async () => {
     const { sourceDir, apiVersion, manifestDir } = settings(program.opts());
-    const items = loadComponents(sourceDir);
+    const items = await scanLocal(sourceDir);
     const state = loadState(manifestDir, apiVersion);
-    // Already-staged items start checked; the returned set replaces the bucket,
-    // so unchecking here removes them too.
+    const { pickComponents } = await import('../src/select.js');
+    // Already-staged items start checked; the returned set replaces the bucket.
     const picked = await pickComponents(items, {
       message: 'package.xml (add / update)',
       preselected: state.changes,
@@ -102,8 +83,8 @@ program
         });
       state.destructive = mergeEntries(state.destructive, picked);
     } else {
-      const items = loadComponents(sourceDir);
-      // Pre-check already-staged deletions; returned set replaces the bucket.
+      const items = await scanLocal(sourceDir);
+      const { pickComponents } = await import('../src/select.js');
       picked = await pickComponents(items, {
         message: 'destructiveChanges.xml (delete)',
         preselected: state.destructive,
@@ -119,6 +100,7 @@ program
   .action(async () => {
     const { apiVersion, manifestDir } = settings(program.opts());
     const state = loadState(manifestDir, apiVersion);
+    const { select } = await import('@inquirer/prompts');
     const bucket = await select({
       message: 'Edit which list?',
       choices: [
@@ -128,7 +110,7 @@ program
     });
     const current = state[bucket];
     if (current.length === 0) return console.log('That list is already empty.');
-    // Everything staged starts checked — uncheck to drop, then save.
+    const { pickComponents } = await import('../src/select.js');
     const picked = await pickComponents(current, {
       message: `${bucket}: uncheck the ones to remove`,
       preselected: current,
@@ -182,6 +164,8 @@ program
     const hasChanges = state.changes.length > 0;
     const hasDestructive = state.destructive.length > 0;
 
+    const { buildDeployArgs, preflight, runSf } = await import('../src/deploy.js');
+
     const problems = preflight({ manifestDir, hasChanges, hasDestructive });
     if (problems.length) {
       console.error('Cannot deploy:');
@@ -197,14 +181,15 @@ program
       })());
 
     const testLevel = cmdOpts.testLevel
-      || (await select({
-        message: 'Test level',
-        choices: TEST_LEVELS.map((l) => ({ name: l, value: l })),
-      }));
+      || (await (async () => {
+        const { select } = await import('@inquirer/prompts');
+        return select({ message: 'Test level', choices: TEST_LEVELS.map((l) => ({ name: l, value: l })) });
+      })());
 
     let tests = cmdOpts.tests || [];
     if (testLevel === 'RunSpecifiedTests' && tests.length === 0) {
-      const items = loadComponents(sourceDir);
+      const items = await scanLocal(sourceDir);
+      const { pickTestClasses } = await import('../src/select.js');
       tests = await pickTestClasses(items);
       if (tests.length === 0) {
         console.error('RunSpecifiedTests requires at least one test class.');
@@ -215,13 +200,7 @@ program
 
     const validate = Boolean(cmdOpts.check);
     const args = buildDeployArgs({
-      manifestDir,
-      target,
-      validate,
-      testLevel,
-      tests,
-      hasChanges,
-      hasDestructive,
+      manifestDir, target, validate, testLevel, tests, hasChanges, hasDestructive,
       wait: Number(cmdOpts.wait) || 60,
     });
 
@@ -229,14 +208,14 @@ program
     console.log(`Test level: ${testLevel}${tests.length ? ` (${tests.join(', ')})` : ''}`);
     console.log(`> sf ${args.join(' ')}\n`);
 
-    const code = await runSf(args);
-    process.exitCode = code;
+    process.exitCode = await runSf(args);
   });
 
 program
   .command('orgs')
   .description('List the orgs the sf CLI is authenticated to')
   .action(async () => {
+    const { listOrgs } = await import('../src/org.js');
     const orgs = await listOrgs();
     if (orgs.length === 0) return console.log('No authenticated orgs. Run `sf org login web` first.');
     for (const o of orgs) {
@@ -255,22 +234,27 @@ program
     const { apiVersion, manifestDir } = settings(program.opts());
     const retrieveDir = path.resolve('.sfm-retrieve');
 
-    // ---- build the store + a loadComponents callback (live or demo) ----
+    const { createStore, setTypes, setComponents } = await import('../src/store.js');
+
     let store;
     let loadInto;
     let orgChoices = [];
 
     if (cmdOpts.demo) {
+      const { DEMO_TYPES, DEMO_COMPONENTS } = await import('../src/demo.js');
       store = createStore({ sourceOrg: 'DEMO', targetOrg: cmdOpts.target || 'DEMO-prod' });
       setTypes(store, DEMO_TYPES);
-      loadInto = async (type) => {
-        setComponents(store, type, DEMO_COMPONENTS[type] || []);
-      };
+      loadInto = async (type) => { setComponents(store, type, DEMO_COMPONENTS[type] || []); };
     } else {
+      console.log('Loading Salesforce libraries …');
+      const { listOrgs, connect, orgLabel } = await import('../src/org.js'); // pulls @salesforce/core
+      const { describeTypes, listComponents, FOLDER_TYPES } = await import('../src/metadata.js');
+
       const source = cmdOpts.source
         || (await (async () => {
           const orgs = await listOrgs();
           if (orgs.length === 0) throw new Error('No authenticated orgs. Run `sf org login web`.');
+          const { select } = await import('@inquirer/prompts');
           return select({
             message: 'Source org to browse',
             choices: orgs.map((o) => ({ name: orgLabel(o), value: o.aliases?.[0] || o.username })),
@@ -280,8 +264,7 @@ program
       console.log(`Connecting to ${source} …`);
       const conn = await connect(source);
       console.log('Describing metadata types …');
-      const types = (await describeTypes(conn, apiVersion))
-        .filter((t) => !FOLDER_TYPES.has(t.name)); // folder types handled separately later
+      const types = (await describeTypes(conn, apiVersion)).filter((t) => !FOLDER_TYPES.has(t.name));
 
       store = createStore({ sourceOrg: source, targetOrg: cmdOpts.target || '' });
       setTypes(store, types);
@@ -297,7 +280,6 @@ program
       };
     }
 
-    // ---- run the TUI ----
     // Detach any stdin listeners left by the inquirer source-org prompt so
     // blessed is the sole keypress consumer (otherwise keys fire twice).
     try {
@@ -308,17 +290,18 @@ program
       process.stdin.pause();
     } catch { /* ignore */ }
 
+    const { runTui } = await import('../src/tui.js'); // pulls blessed
     const result = await runTui({ store, loadComponents: loadInto, orgs: orgChoices });
 
     if (result.action === 'quit') return;
 
     if (result.action === 'build') {
+      const { writeManifests } = await import('../src/manifest.js'); // pulls SDR — deferred until now
       await writeManifests(manifestDir, { apiVersion, changes: result.entries, destructive: [] });
       console.log(`\nWrote ${path.join(manifestDir, PACKAGE_FILE)} (${result.entries.length} components).`);
       return;
     }
 
-    // validate / deploy => org-to-org
     if (cmdOpts.demo) {
       console.log('\n[demo] Would now:');
       console.log(`  1. write package.xml (${result.entries.length} components)`);
@@ -345,6 +328,8 @@ program
       }
     }
 
+    const { retrieveFromSource, deployToTarget } = await import('../src/orgflow.js'); // pulls SDR
+
     console.log(`\n1/2  Retrieving ${result.entries.length} components from ${store.sourceOrg} …`);
     const rc = await retrieveFromSource({
       manifestDir, retrieveDir, sourceOrg: store.sourceOrg, entries: result.entries, apiVersion,
@@ -352,14 +337,13 @@ program
     if (rc !== 0) { console.error('Retrieve failed.'); process.exitCode = rc; return; }
 
     console.log(`\n2/2  ${result.action === 'validate' ? 'Validating' : 'Deploying'} to ${result.targetOrg} (test-level ${result.testLevel}) …`);
-    const dc = await deployToTarget({
+    process.exitCode = await deployToTarget({
       retrieveDir,
       targetOrg: result.targetOrg,
       testLevel: result.testLevel,
       tests,
       validate: result.action === 'validate',
     });
-    process.exitCode = dc;
   });
 
 program.parseAsync(process.argv);

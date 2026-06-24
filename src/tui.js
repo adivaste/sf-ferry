@@ -15,7 +15,7 @@ import {
   hasComponents,
   manifestEntries,
 } from './store.js';
-import { TEST_LEVELS } from './deploy.js';
+import { TEST_LEVELS } from './constants.js';
 
 const trunc = (s, n) => (s && s.length > n ? `${s.slice(0, n - 1)}…` : s || '');
 const shortDate = (d) => (d ? String(d).slice(0, 10) : '');
