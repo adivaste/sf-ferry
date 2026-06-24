@@ -67,6 +67,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     let busy = false;
     let filtering = false;
     let modal = false;
+    let typeFilter = ''; // type-ahead filter for the Types pane
 
     // virtualized list state
     let view = []; // cached filtered + sorted rows for the active type
@@ -140,13 +141,24 @@ export function runTui({ store, loadComponents, orgs = [] }) {
         `   test-level: {green-fg}${testLevel}{/green-fg}   selected: {green-fg}${selectionCount(store)}{/green-fg}`,
       );
     }
+    function filteredTypes() {
+      const t = typeFilter.trim().toLowerCase();
+      if (!t) return store.types;
+      const toks = t.split(/\s+/);
+      return store.types.filter((x) => {
+        const n = x.name.toLowerCase();
+        return toks.every((tok) => n.includes(tok));
+      });
+    }
     function renderTypes() {
-      typesList.setItems(store.types.map((t) => {
+      const arr = filteredTypes();
+      typesList.setItems(arr.map((t) => {
         const sel = selectedCountForType(store, t.name);
         return `${t.name}${sel ? ` {green-fg}(${sel})✓{/green-fg}` : ''}`;
       }));
-      const idx = store.types.findIndex((t) => t.name === store.activeType);
-      if (idx >= 0) typesList.select(idx);
+      const idx = arr.findIndex((t) => t.name === store.activeType);
+      typesList.select(idx >= 0 ? idx : 0);
+      typesList.setLabel(typeFilter ? ` Types  /${typeFilter} ` : ` Types (${store.types.length}) `);
     }
     function sortHead(key, label) {
       return store.sortKey === key ? `${label} ${store.sortDir === 1 ? '▲' : '▼'}` : label;
@@ -204,7 +216,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     }
     function renderFooter() {
       footer.setContent(
-        ' {cyan-fg}↑↓/jk{/cyan-fg} move  {cyan-fg}PgUp/Dn{/cyan-fg} page  {cyan-fg}enter{/cyan-fg} open type  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}tab{/cyan-fg} pane  {cyan-fg}r{/cyan-fg} refresh  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level\n' +
+        ' {cyan-fg}↑↓/jk{/cyan-fg} move  {cyan-fg}type{/cyan-fg} find type  {cyan-fg}enter{/cyan-fg} open  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter rows  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}tab{/cyan-fg} pane  {cyan-fg}r{/cyan-fg} refresh  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level\n' +
         ' {green-fg}b{/green-fg} build package.xml   {green-fg}v{/green-fg} validate   {green-fg}d{/green-fg} deploy   {red-fg}q{/red-fg} quit',
       );
     }
@@ -254,13 +266,36 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     });
 
     typesList.on('select', async (_item, index) => {
-      const t = store.types[index];
+      const t = filteredTypes()[index];
       if (!t) return;
       setActiveType(store, t.name);
       filterBox.clearValue();
       renderHeader(); renderTypes(); paint();
       await ensureLoaded(t.name);
       focusPane(table);
+    });
+
+    // Type-ahead filter on the Types pane (like a web picklist): typing letters
+    // narrows the list live; backspace edits; esc clears. up/down/enter still
+    // navigate/open via the list's own handlers.
+    typesList.on('keypress', (ch, key) => {
+      if (modal || filtering) return;
+      const name = key && key.name;
+      if (name === 'backspace') {
+        if (typeFilter) { typeFilter = typeFilter.slice(0, -1); renderTypes(); paint(); }
+        return;
+      }
+      if (name === 'escape') {
+        if (typeFilter) { typeFilter = ''; renderTypes(); paint(); }
+        return;
+      }
+      const printable = ch && ch.length === 1 && !key.ctrl && !key.meta
+        && ch >= ' ' && ch !== ' ' && ch !== '/';
+      if (printable) {
+        typeFilter += ch;
+        renderTypes();
+        paint();
+      }
     });
 
     function refreshMarks() {
@@ -274,12 +309,16 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       toggleSelect(store, r.type, r.fullName);
       refreshMarks(); // view membership unchanged → cursor stays put
     });
-    screen.key('a', () => { if (filtering || modal) return; selectAllVisible(store); refreshMarks(); });
-    screen.key('c', () => { if (filtering || modal) return; clearVisible(store); refreshMarks(); });
+    // Letter/digit shortcuts are disabled while the Types pane is focused —
+    // there, typing feeds the type-ahead filter instead.
+    const typing = () => typesList.focused;
+
+    screen.key('a', () => { if (filtering || modal || typing()) return; selectAllVisible(store); refreshMarks(); });
+    screen.key('c', () => { if (filtering || modal || typing()) return; clearVisible(store); refreshMarks(); });
 
     for (let n = 1; n <= COLUMNS.length; n += 1) {
       screen.key(String(n), () => {
-        if (filtering || modal) return;
+        if (filtering || modal || typing()) return;
         setSort(store, COLUMNS[n - 1].key);
         recomputeView();
         renderTable(); paint();
@@ -288,7 +327,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
 
     // ---- live filter -----------------------------------------------------
     screen.key('/', () => {
-      if (modal) return;
+      if (modal || typing()) return;
       filtering = true;
       filterBox.style.border.fg = 'cyan';
       filterBox.focus();
@@ -319,17 +358,17 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     filterBox.on('cancel', () => { filterBox.clearValue(); endFilter(true); });
 
     screen.key('r', async () => {
-      if (filtering || modal || busy) return;
+      if (filtering || modal || busy || typing()) return;
       await ensureLoaded(store.activeType, { refresh: true });
       focusPane(table);
     });
     screen.key('l', () => {
-      if (filtering || modal) return;
+      if (filtering || modal || typing()) return;
       testLevel = TEST_LEVELS[(TEST_LEVELS.indexOf(testLevel) + 1) % TEST_LEVELS.length];
       renderHeader(); renderFooter(); paint();
     });
     screen.key('t', () => {
-      if (filtering || modal) return;
+      if (filtering || modal || typing()) return;
       if (orgs.length === 0) { status('No other orgs found (pass --target).'); return; }
       modal = true;
       const picker = blessed.list({
@@ -349,21 +388,18 @@ export function runTui({ store, loadComponents, orgs = [] }) {
 
     function cleanup() { program.emit = realEmit; }
     function finish(action) {
-      if (filtering || modal) return;
+      if (filtering || modal || typing()) return;
       if (action !== 'build' && selectionCount(store) === 0) { status('Select at least one component first.'); return; }
       cleanup();
       screen.destroy();
       resolve({ action, testLevel, targetOrg: store.targetOrg, entries: manifestEntries(store) });
     }
+    function doQuit() { cleanup(); screen.destroy(); resolve({ action: 'quit' }); }
     screen.key('b', () => finish('build'));
     screen.key('v', () => finish('validate'));
     screen.key('d', () => finish('deploy'));
-    screen.key(['q', 'C-c'], () => {
-      if (filtering || modal) return;
-      cleanup();
-      screen.destroy();
-      resolve({ action: 'quit' });
-    });
+    screen.key('q', () => { if (filtering || modal || typing()) return; doQuit(); });
+    screen.key('C-c', () => doQuit()); // Ctrl+C always quits, even while typing
 
     function cyclePane(dir) {
       if (filtering || modal) return;
