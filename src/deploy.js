@@ -1,14 +1,15 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { DESTRUCTIVE_FILE, EMPTY_PACKAGE_FILE, PACKAGE_FILE } from './manifest.js';
+import {
+  DESTRUCTIVE_FILE,
+  EMPTY_PACKAGE_FILE,
+  PACKAGE_FILE,
+  TEST_LEVELS,
+} from './constants.js';
 
-export const TEST_LEVELS = [
-  'NoTestRun',
-  'RunSpecifiedTests',
-  'RunLocalTests',
-  'RunAllTestsInOrg',
-];
+// deploy.js stays light (no SDR/core) — re-export for back-compat.
+export { TEST_LEVELS };
 
 /**
  * Build the argument list for `sf project deploy <validate|start>`.
