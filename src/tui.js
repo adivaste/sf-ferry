@@ -68,6 +68,8 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     let filtering = false;
     let modal = false;
     let typeFilter = ''; // type-ahead filter for the Types pane
+    let leftVisible = true; // Types pane (Ctrl+B)
+    let rightVisible = true; // Selected pane (Alt+B)
 
     // virtualized list state
     let view = []; // cached filtered + sorted rows for the active type
@@ -113,6 +115,23 @@ export function runTui({ store, loadComponents, orgs = [] }) {
       screen.render();
     }
     const paint = () => screen.render();
+
+    // Collapse/expand the side panels so the center table can use the space.
+    function relayout() {
+      const lw = leftVisible ? 25 : 0;
+      const rw = rightVisible ? 30 : 0;
+      const cw = 100 - lw - rw;
+      if (leftVisible) typesList.show(); else typesList.hide();
+      if (rightVisible) basket.show(); else basket.hide();
+      filterBox.left = `${lw}%`;
+      filterBox.width = `${cw}%`;
+      table.left = `${lw}%`;
+      table.width = `${cw}%`;
+      basket.left = `${100 - rw}%`;
+      screen.render();
+      renderTable(); // recompute column widths for the new center width
+      paint();
+    }
 
     // ---- viewport helpers ------------------------------------------------
     function viewportHeight() {
@@ -217,7 +236,7 @@ export function runTui({ store, loadComponents, orgs = [] }) {
     function renderFooter() {
       footer.setContent(
         ' {cyan-fg}↑↓/jk{/cyan-fg} move  {cyan-fg}type{/cyan-fg} find type  {cyan-fg}enter{/cyan-fg} open  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter rows  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}tab{/cyan-fg} pane  {cyan-fg}r{/cyan-fg} refresh  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level\n' +
-        ' {green-fg}b{/green-fg} build package.xml   {green-fg}v{/green-fg} validate   {green-fg}d{/green-fg} deploy   {red-fg}q{/red-fg} quit',
+        ' {green-fg}b{/green-fg} build   {green-fg}v{/green-fg} validate   {green-fg}d{/green-fg} deploy   {cyan-fg}^B{/cyan-fg} hide left   {cyan-fg}M-b{/cyan-fg} hide right   {red-fg}q{/red-fg} quit',
       );
     }
     function renderAll() {
@@ -403,11 +422,27 @@ export function runTui({ store, loadComponents, orgs = [] }) {
 
     function cyclePane(dir) {
       if (filtering || modal) return;
-      const cur = panes.findIndex((el) => el.focused);
-      focusPane(panes[((cur < 0 ? 0 : cur) + dir + panes.length) % panes.length]);
+      const vis = panes.filter((el) => !el.hidden);
+      if (vis.length === 0) return;
+      const cur = vis.findIndex((el) => el.focused);
+      focusPane(vis[((cur < 0 ? 0 : cur) + dir + vis.length) % vis.length]);
     }
     screen.key('tab', () => cyclePane(1));
     screen.key('S-tab', () => cyclePane(-1));
+
+    // Ctrl+B toggles the left (Types) panel, Alt+B the right (Selected) panel.
+    screen.key('C-b', () => {
+      if (modal) return;
+      leftVisible = !leftVisible;
+      if (!leftVisible && typesList.focused) focusPane(table);
+      relayout();
+    });
+    screen.key('M-b', () => {
+      if (modal) return;
+      rightVisible = !rightVisible;
+      if (!rightVisible && basket.focused) focusPane(table);
+      relayout();
+    });
 
     screen.on('resize', () => { renderTable(); paint(); });
 
