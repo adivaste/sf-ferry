@@ -87,6 +87,16 @@ export function isSelected(store, type, fullName) {
   return !!store.selected[type] && store.selected[type].has(fullName);
 }
 
+/** Replace the whole selection from a flat [{type, fullName}] list (restore). */
+export function setSelection(store, entries) {
+  store.selected = {};
+  for (const e of entries || []) {
+    if (!e || !e.type || !e.fullName) continue;
+    if (!store.selected[e.type]) store.selected[e.type] = new Set();
+    store.selected[e.type].add(e.fullName);
+  }
+}
+
 export function toggleSelect(store, type, fullName) {
   const set = bucket(store, type);
   if (set.has(fullName)) set.delete(fullName);
