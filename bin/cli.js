@@ -229,6 +229,7 @@ program
   .description('Live, change-set-style metadata selector (org → org)')
   .option('-s, --source <org>', 'source org to browse (alias or username)')
   .option('-o, --target <org>', 'target org to deploy to')
+  .option('--refetch', 're-retrieve from the source org even if a matching zip is cached')
   .option('--demo', 'run with fixture data, no org connection')
   .action(async (cmdOpts) => {
     const { apiVersion, manifestDir } = settings(program.opts());
@@ -379,8 +380,9 @@ program
 
     console.log(step(1, 2, `Retrieving ${result.entries.length} components from ${c.yellow(store.sourceOrg)} …`));
     const r = await retrieveFromSource({
-      manifestDir, retrieveDir, sourceOrg: store.sourceOrg, entries: result.entries, apiVersion,
+      manifestDir, retrieveDir, sourceOrg: store.sourceOrg, entries: result.entries, apiVersion, refetch: cmdOpts.refetch,
     });
+    if (r.reused) console.log(c.gray('      ↳ reused the cached zip (selection unchanged) — pass --refetch to re-pull'));
     if (r.code !== 0) {
       console.error(resultBox({ ok: false, label: r.error || 'Retrieve failed' }));
       console.error(c.gray(`Your selection is saved — run "sfm ui" again to retry (it'll be pre-checked).`));

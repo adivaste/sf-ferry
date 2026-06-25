@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { buildRetrieveArgs, buildOrgDeployArgs, RETRIEVE_ZIP } from '../src/orgflow.js';
+import { buildRetrieveArgs, buildOrgDeployArgs, RETRIEVE_ZIP, manifestSignature } from '../src/orgflow.js';
 
 let n = 0;
 const ok = (label, cond) => { assert.ok(cond, label); console.log('PASS', label); n += 1; };
@@ -29,5 +29,12 @@ const na = buildOrgDeployArgs({ zipPath: 'z.zip', targetOrg: 'prod', testLevel: 
 ok('NoTestRun validate -> start --dry-run', na.includes('start') && !na.includes('validate') && na.includes('--dry-run'));
 const nd = buildOrgDeployArgs({ zipPath: 'z.zip', targetOrg: 'prod', testLevel: 'NoTestRun', validate: false });
 ok('NoTestRun deploy -> plain start', nd.includes('start') && !nd.includes('--dry-run'));
+
+// manifestSignature: order-independent, distinguishes different selections.
+const a = manifestSignature([{ type: 'ApexClass', fullName: 'A' }, { type: 'ApexClass', fullName: 'B' }]);
+const b = manifestSignature([{ type: 'ApexClass', fullName: 'B' }, { type: 'ApexClass', fullName: 'A' }]);
+ok('signature is order-independent (cache hit on retry)', a === b);
+const cSig = manifestSignature([{ type: 'ApexClass', fullName: 'A' }]);
+ok('signature changes when selection changes (cache miss)', a !== cSig);
 
 console.log(`\n${n} orgflow checks passed`);

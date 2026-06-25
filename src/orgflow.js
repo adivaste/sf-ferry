@@ -1,11 +1,18 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { PACKAGE_FILE, TEST_LEVELS } from './constants.js';
 import { writeManifests } from './manifest.js';
 
 export { TEST_LEVELS };
+
+const SIG_FILE = '.sfm-sig.json';
+
+/** Stable signature of a selection, so we can tell if a cached zip still matches. */
+export function manifestSignature(entries) {
+  return JSON.stringify((entries || []).map((e) => `${e.type}:${e.fullName}`).sort());
+}
 
 // Org-to-org migration uses METADATA format end to end. Source-format retrieve
 // into a side --output-dir is filtered by the project's .forceignore / package
@@ -55,8 +62,20 @@ export function buildOrgDeployArgs({ zipPath, targetOrg, testLevel, tests = [], 
  * Write package.xml from the selection, then retrieve those components from the
  * SOURCE org as a metadata-format zip. Returns { code, zip, error }.
  */
-export async function retrieveFromSource({ manifestDir, retrieveDir, sourceOrg, entries, apiVersion, wait = 60 }) {
+export async function retrieveFromSource({ manifestDir, retrieveDir, sourceOrg, entries, apiVersion, wait = 60, refetch = false }) {
   await writeManifests(manifestDir, { apiVersion, changes: entries, destructive: [] });
+  const zip = path.join(retrieveDir, RETRIEVE_ZIP);
+  const sigPath = path.join(retrieveDir, SIG_FILE);
+  const sig = manifestSignature(entries);
+
+  // Reuse the previously retrieved zip if the selection is unchanged (e.g. a
+  // retry after a failed deploy) — unless --refetch forces a fresh pull.
+  if (!refetch && existsSync(zip) && existsSync(sigPath)) {
+    try {
+      if (readFileSync(sigPath, 'utf8') === sig) return { code: 0, zip, reused: true };
+    } catch { /* fall through and re-fetch */ }
+  }
+
   await rm(retrieveDir, { recursive: true, force: true });
   const args = buildRetrieveArgs({
     manifestPath: path.join(manifestDir, PACKAGE_FILE),
@@ -65,16 +84,17 @@ export async function retrieveFromSource({ manifestDir, retrieveDir, sourceOrg, 
     wait,
   });
   const code = await sf(args);
-  const zip = path.join(retrieveDir, RETRIEVE_ZIP);
   if (code === 0 && !existsSync(zip)) {
     return {
       code: 1,
       zip,
+      reused: false,
       error: 'Nothing was retrieved from the source org — the selected components were not found there. '
         + 'Make sure you browsed the correct source org.',
     };
   }
-  return { code, zip };
+  if (code === 0) { try { writeFileSync(sigPath, sig); } catch { /* best-effort cache key */ } }
+  return { code, zip, reused: false };
 }
 
 /** Deploy (or validate) the retrieved metadata zip to the TARGET org. */
