@@ -234,9 +234,12 @@ program
     const { apiVersion, manifestDir } = settings(program.opts());
     const retrieveDir = path.resolve('.sfm-retrieve');
 
-    const { createStore, setTypes, setComponents } = await import('../src/store.js');
+    const { createStore, setTypes, setComponents, setSelection } = await import('../src/store.js');
+    const { loadSession, saveSession } = await import('../src/session.js');
     const store = createStore({ sourceOrg: '', targetOrg: cmdOpts.target || '' });
     let prepare;
+    let restoredCount = 0;
+    let initialTestLevel = null;
 
     if (cmdOpts.demo) {
       store.sourceOrg = 'DEMO';
@@ -245,6 +248,7 @@ program
         step.begin('Loading demo data …');
         const { DEMO_TYPES, DEMO_COMPONENTS } = await import('../src/demo.js');
         step.done('Demo data ready');
+        if (restoredCount) { step.begin(`Restored ${restoredCount} staged component(s) from last session`); step.done(); }
         return {
           types: DEMO_TYPES,
           loadComponents: async (type) => { setComponents(store, type, DEMO_COMPONENTS[type] || []); },
@@ -277,6 +281,7 @@ program
         step.begin('Describing metadata types …');
         const types = (await describeTypes(conn, apiVersion)).filter((t) => !FOLDER_TYPES.has(t.name));
         step.done(`Found ${types.length} metadata types`);
+        if (restoredCount) { step.begin(`Restored ${restoredCount} staged component(s) from last session`); step.done(); }
         const all = await listOrgs();
         const orgs = all
           .filter((o) => (o.aliases?.[0] || o.username) !== source)
@@ -287,6 +292,16 @@ program
         };
         return { types, loadComponents, orgs };
       };
+    }
+
+    // Restore the last selection for this source org (so a failed/abandoned
+    // deploy never costs you the re-selection).
+    const session = loadSession(store.sourceOrg);
+    if (session) {
+      setSelection(store, session.entries);
+      restoredCount = (session.entries || []).length;
+      if (!cmdOpts.target && session.targetOrg) store.targetOrg = session.targetOrg;
+      initialTestLevel = session.testLevel || null;
     }
 
     // Detach any stdin listeners left by the inquirer source-org prompt so
@@ -300,7 +315,15 @@ program
     } catch { /* ignore */ }
 
     const { runTui } = await import('../src/tui.js'); // pulls blessed
-    const result = await runTui({ store, prepare });
+    const result = await runTui({ store, prepare, initialTestLevel });
+
+    // Persist the selection (+ last target/test level) for next time, regardless
+    // of the action — so quitting or a failed deploy keeps everything staged.
+    saveSession(store.sourceOrg, {
+      entries: result.entries || [],
+      targetOrg: result.targetOrg || store.targetOrg,
+      testLevel: result.testLevel,
+    });
 
     // blessed leaves the terminal in raw mode on exit — restore cooked mode so
     // the streamed `sf` output (and any later prompt) behaves normally.
@@ -360,6 +383,7 @@ program
     });
     if (r.code !== 0) {
       console.error(resultBox({ ok: false, label: r.error || 'Retrieve failed' }));
+      console.error(c.gray(`Your selection is saved — run "sfm ui" again to retry (it'll be pre-checked).`));
       process.exit(r.code);
     }
 
@@ -380,6 +404,9 @@ program
         ? `${past} · ${result.entries.length} components · ${elapsed()}`
         : `${result.action === 'validate' ? 'Validation' : 'Deploy'} failed · see output above · ${elapsed()}`,
     }));
+    if (deployCode !== 0) {
+      console.error(c.gray(`Your selection is saved — run "sfm ui" again to retry (it'll be pre-checked).`));
+    }
     process.exit(deployCode);
   });
 

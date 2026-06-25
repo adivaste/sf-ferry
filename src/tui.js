@@ -101,7 +101,7 @@ const HELP_TEXT = [
  * rows visible in the window are ever formatted/rendered (like fzf / vim).
  * Scrolling is pure array slicing — O(viewport), independent of total size.
  */
-export function runTui({ store, loadComponents, orgs = [], prepare = null }) {
+export function runTui({ store, loadComponents, orgs = [], prepare = null, initialTestLevel = null }) {
   // loadComponents/orgs may be (re)assigned by `prepare` after the splash.
   // eslint-disable-next-line no-param-reassign
   let _load = loadComponents;
@@ -135,7 +135,7 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null }) {
     const removeDedupe = () => { program.emit = realEmit; };
     applyDedupe();
 
-    let testLevel = 'RunLocalTests';
+    let testLevel = initialTestLevel && TEST_LEVELS.includes(initialTestLevel) ? initialTestLevel : 'RunLocalTests';
     let busy = false;
     let filtering = false;
     let modal = false;
@@ -614,7 +614,11 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null }) {
       }
       resolveWith(action, []);
     }
-    function doQuit() { cleanup(); screen.destroy(); resolve({ action: 'quit' }); }
+    function doQuit() {
+      cleanup();
+      screen.destroy();
+      resolve({ action: 'quit', testLevel, targetOrg: store.targetOrg, entries: manifestEntries(store) });
+    }
 
     // Small y/n confirmation so q/d/v/b aren't triggered by an accidental keypress.
     function confirmAction(message, onYes) {

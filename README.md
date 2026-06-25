@@ -68,6 +68,13 @@ deploy output streams normally. `RunSpecifiedTests` prompts for the test classes
 > Manage orgs with `sfm orgs` (lists everything `sf` is logged into).
 > The earlier **local-source** workflow below (`add` / `delete` / `deploy`) still works unchanged.
 
+### Your selection is remembered
+
+The selection (plus last target org + test level) is saved per source org to
+`.sfm-session.json`. So if a deploy fails — or you quit — just run `sfm ui`
+again and everything comes back **pre-checked**; no re-selecting. The splash
+shows `Restored N staged component(s)` when it loads a saved session.
+
 ### Performance
 
 Built for responsiveness on large orgs:
