@@ -75,8 +75,11 @@ program
       // --source isn't given); the slow connect+describe happens under the splash.
       let source = cmdOpts.source;
       if (!source) {
-        const { listOrgs, orgLabel } = await import('../src/org.js');
+        const { startSpinner } = await import('../src/cli-ui.js');
+        const stop = startSpinner('Loading your authenticated orgs …');
+        const { listOrgs, orgLabel } = await import('../src/org.js'); // pulls @salesforce/core (~1.8s)
         const orgs = await listOrgs();
+        stop();
         if (orgs.length === 0) { console.error('No authenticated orgs. Run `sf org login web`.'); process.exit(1); }
         const { select } = await import('@inquirer/prompts');
         source = await select({
