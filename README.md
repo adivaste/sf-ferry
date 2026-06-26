@@ -66,7 +66,6 @@ type loads, and the footer shows the keys relevant to the focused pane.
 deploy output streams normally. `RunSpecifiedTests` prompts for the test classes.
 
 > Manage orgs with `sfm orgs` (lists everything `sf` is logged into).
-> The earlier **local-source** workflow below (`add` / `delete` / `deploy`) still works unchanged.
 
 ### Import from an existing package / change set
 
@@ -84,19 +83,31 @@ Wildcard members (`<members>*</members>`) can't be expanded to specific picks,
 so those types are skipped with a note — open the type and press `a` to select
 all if you want them.
 
-### Your selection is remembered
+### Saved selections (history) — press `s`
 
-The selection (plus last target org + test level) is saved per source org to
-`.sfm-session.json`. So if a deploy fails — or you quit — just run `sfm ui`
-again and everything comes back **pre-checked**; no re-selecting. The splash
-shows `Restored N staged component(s)` when it loads a saved session.
+Selections are **not** auto-restored (no surprises on launch). Instead, every
+time you act or quit, the current selection (+ target + test level) is
+checkpointed to a deduped **history (last 20 per org)**. In the UI press **`s`**
+to pick a past selection and load it back — handy after a failed deploy. See
+everything with `sfm status`.
+
+### State lives in `~/.sfm` (global)
+
+All cross-project state is under `~/.sfm/` (override with `SFM_HOME`), keyed by
+org **username**, so it follows you regardless of which folder you run from:
+`~/.sfm/cache/<org>/…`, `~/.sfm/sessions/<org>.json`, `~/.sfm/retrieve/<org>/…`.
+The metadata cache never auto-expires — the Components pane shows
+`fetched Xh ago` and `r` re-pulls. Inspect with **`sfm status`**, wipe with
+**`sfm clean`** (`--all` also clears saved sessions). Defaults can be set in
+`~/.sfm/config.json` (`apiVersion`, `defaultTestLevel`). The only thing written
+into your project is the `package.xml` from `b`/deploy (in `./manifest`).
 
 ### Performance
 
 Built for responsiveness on large orgs:
 
-- **Lazy module loading.** The heavy libraries (`@salesforce/source-deploy-retrieve` ~2.3 s and `@salesforce/core` ~1.8 s to import) load only when a command actually needs them. Light commands (`--help`, `show`, `clear`, `orgs`*) start in ~0.1–0.25 s instead of ~4.4 s. SDR is deferred during `ui` until you actually deploy. (*`orgs`/`ui` still pay the one-time `@salesforce/core` connect cost.)
-- **Lazy, cached metadata.** `ui` makes one `describeMetadata` call for the type list, then one `listMetadata` call per type **only when you open it**, cached to `.sfm-cache/` (press `r` to refresh). Component source is never downloaded while browsing — only the selected components are retrieved, at deploy time.
+- **Lazy module loading.** The heavy libraries (`@salesforce/source-deploy-retrieve` ~2.3 s and `@salesforce/core` ~1.8 s to import) load only when a command actually needs them. Light commands (`--help`, `status`, `orgs`*) start in ~0.1–0.25 s instead of ~4.4 s. SDR is deferred during `ui` until you actually deploy. (*`orgs`/`ui` still pay the one-time `@salesforce/core` connect cost.)
+- **Lazy, cached metadata.** `ui` makes one `describeMetadata` call for the type list, then one `listMetadata` call per type **only when you open it**, cached under `~/.sfm/cache/` (press `r` to refresh). Component source is never downloaded while browsing — only the selected components are retrieved, at deploy time.
 - **True virtualization (fzf-style).** The component list renders only the rows visible in the viewport (~the window height), not the whole dataset. The full filtered+sorted array is computed once per filter/sort/type change and cached; scrolling is pure array-slicing. Measured: **600+ scroll renders over a 50,000-row type in ~0.6 s** (~1 ms/render). The filter is debounced and each action is a single repaint.
 - **All metadata types.** The type list includes both top-level types and **child types** (CustomField, ValidationRule, RecordType, WebLink, ListView, FieldSet, CompactLayout, …) — everything listable that appears in a change set.
 

@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { Command } from 'commander';
 import { resolveProject } from '../src/config.js';
+import { loadConfig } from '../src/userconfig.js';
 import { PACKAGE_FILE } from '../src/constants.js';
 
 // Heavy modules (SDR, @salesforce/core, blessed) are imported lazily inside the
@@ -16,10 +17,11 @@ program
   .option('-a, --api-version <ver>', 'API version (default: from sfdx-project.json or 62.0)');
 
 function settings(opts) {
+  const cfg = loadConfig(); // ~/.sfm/config.json
   const project = resolveProject();
-  const apiVersion = opts.apiVersion || project.apiVersion;
+  const apiVersion = opts.apiVersion || cfg.apiVersion || project.apiVersion;
   const manifestDir = path.resolve(opts.manifestDir || 'manifest');
-  return { apiVersion, manifestDir };
+  return { apiVersion, manifestDir, defaultTestLevel: cfg.defaultTestLevel || null };
 }
 
 program
@@ -44,7 +46,7 @@ program
   .option('--refetch', 're-retrieve from the source org even if a matching zip is cached')
   .option('--demo', 'run with fixture data, no org connection')
   .action(async (cmdOpts) => {
-    const { apiVersion, manifestDir } = settings(program.opts());
+    const { apiVersion, manifestDir, defaultTestLevel } = settings(program.opts());
     const { retrieveDir: retrievePath } = await import('../src/paths.js');
 
     const { createStore, setTypes, setComponents, setSelection } = await import('../src/store.js');
@@ -138,8 +140,8 @@ program
     const result = await runTui({
       store,
       prepare,
+      initialTestLevel: defaultTestLevel,
       onListSessions: () => listSessions(orgKey()),
-      onSaveSession: (entry) => addSession(orgKey(), entry),
     });
 
     // Checkpoint the selection to history on a real action, so a failed deploy
@@ -233,6 +235,53 @@ program
       console.error(c.gray(`Your selection is saved — run "sfm ui" again to retry (it'll be pre-checked).`));
     }
     process.exit(deployCode);
+  });
+
+program
+  .command('status')
+  .description('Show sfm cached state: saved sessions, metadata cache, retrieve zips')
+  .action(async () => {
+    const { gatherStatus } = await import('../src/status.js');
+    const { ago, c } = await import('../src/cli-ui.js');
+    const s = gatherStatus();
+    console.log(`${c.bold('sfm state')}  ${c.gray(s.home)}\n`);
+    console.log(c.cyan('Saved sessions') + c.gray('  (press s in the UI to load one)'));
+    if (!s.sessions.length) console.log('  (none)');
+    for (const x of s.sessions) console.log(`  ${x.org.padEnd(38)} ${String(x.count).padStart(2)} saved · newest ${ago(x.newest)}`);
+    console.log(`\n${c.cyan('Metadata cache')}${c.gray('  (press r in the UI to refresh a type)')}`);
+    if (!s.cache.length) console.log('  (none)');
+    for (const x of s.cache) console.log(`  ${x.org.padEnd(38)} ${String(x.types).padStart(3)} types · newest ${ago(x.newest)}`);
+    console.log(`\n${c.cyan('Retrieve zips')}`);
+    if (!s.retrieve.length) console.log('  (none)');
+    for (const x of s.retrieve) console.log(`  ${x.org.padEnd(38)} ${x.sizeKb} KB · ${ago(x.at)}`);
+    console.log(`\n${c.gray('sfm clean        remove cache + retrieve (keeps sessions)')}`);
+    console.log(c.gray('sfm clean --all  remove everything under ~/.sfm'));
+  });
+
+program
+  .command('clean')
+  .description('Remove sfm cached state (cache + retrieve; --all also removes saved sessions)')
+  .option('--all', 'also remove saved sessions (everything under ~/.sfm)')
+  .option('-y, --yes', 'skip the confirmation prompt')
+  .action(async (cmdOpts) => {
+    const { sfmHome } = await import('../src/paths.js');
+    const { rm } = await import('node:fs/promises');
+    const home = sfmHome();
+    const targets = cmdOpts.all
+      ? [home]
+      : [path.join(home, 'cache'), path.join(home, 'retrieve')];
+    console.log('Will remove:');
+    for (const t of targets) console.log(`  ${t}`);
+    if (!cmdOpts.yes) {
+      const { confirm } = await import('@inquirer/prompts');
+      const go = await confirm({
+        message: cmdOpts.all ? 'Remove ALL sfm state, including saved sessions?' : 'Remove cache + retrieve zips?',
+        default: false,
+      });
+      if (!go) return console.log('Cancelled.');
+    }
+    for (const t of targets) await rm(t, { recursive: true, force: true });
+    console.log('Done.');
   });
 
 program.parseAsync(process.argv);
