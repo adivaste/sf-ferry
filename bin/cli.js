@@ -45,14 +45,14 @@ program
   .option('--demo', 'run with fixture data, no org connection')
   .action(async (cmdOpts) => {
     const { apiVersion, manifestDir } = settings(program.opts());
-    const retrieveDir = path.resolve('.sfm-retrieve');
+    const { retrieveDir: retrievePath } = await import('../src/paths.js');
 
     const { createStore, setTypes, setComponents, setSelection } = await import('../src/store.js');
-    const { loadSession, saveSession } = await import('../src/session.js');
+    const { listSessions, addSession } = await import('../src/session.js');
     const store = createStore({ sourceOrg: '', targetOrg: cmdOpts.target || '' });
+    const orgKey = () => store.sourceUsername || store.sourceOrg;
     let prepare;
-    let seedNote = null; // splash line describing imported/restored selection
-    let initialTestLevel = null;
+    let seedNote = null; // splash line describing an imported selection
 
     if (cmdOpts.demo) {
       store.sourceOrg = 'DEMO';
@@ -90,7 +90,9 @@ program
         step.done('Loaded libraries');
         step.begin(`Connecting to ${source} …`);
         const conn = await connect(source);
-        step.done(`Connected to ${source}`);
+        const username = conn.getUsername() || source;
+        store.sourceUsername = username;
+        step.done(`Connected to ${username}`);
         step.begin('Describing metadata types …');
         const types = (await describeTypes(conn, apiVersion)).filter((t) => !FOLDER_TYPES.has(t.name));
         step.done(`Found ${types.length} metadata types`);
@@ -100,15 +102,15 @@ program
           .filter((o) => (o.aliases?.[0] || o.username) !== source)
           .map((o) => ({ label: orgLabel(o), value: o.aliases?.[0] || o.username }));
         const loadComponents = async (type, { refresh = false } = {}) => {
-          const rows = await listComponents(conn, type, { apiVersion, orgKey: source, refresh });
-          setComponents(store, type, rows);
+          const { rows, fetchedAt } = await listComponents(conn, type, { apiVersion, orgKey: username, refresh });
+          setComponents(store, type, rows, fetchedAt);
         };
         return { types, loadComponents, orgs };
       };
     }
 
-    // Seed the selection: --import (a package.xml/zip) takes precedence;
-    // otherwise restore the last session for this source org.
+    // --import pre-selects from a package.xml/zip. Past sessions are NOT
+    // auto-restored — press R in the UI to pick one from the history.
     if (cmdOpts.import) {
       try {
         const { importPackage } = await import('../src/import-manifest.js');
@@ -119,14 +121,6 @@ program
       } catch (e) {
         console.error(`Could not import ${cmdOpts.import}: ${e.message}`);
         process.exit(1);
-      }
-    } else {
-      const session = loadSession(store.sourceOrg);
-      if (session && (session.entries || []).length) {
-        setSelection(store, session.entries);
-        if (!cmdOpts.target && session.targetOrg) store.targetOrg = session.targetOrg;
-        initialTestLevel = session.testLevel || null;
-        seedNote = `Restored ${session.entries.length} staged component(s) from last session`;
       }
     }
 
@@ -141,15 +135,18 @@ program
     } catch { /* ignore */ }
 
     const { runTui } = await import('../src/tui.js'); // pulls blessed
-    const result = await runTui({ store, prepare, initialTestLevel });
-
-    // Persist the selection (+ last target/test level) for next time, regardless
-    // of the action — so quitting or a failed deploy keeps everything staged.
-    saveSession(store.sourceOrg, {
-      entries: result.entries || [],
-      targetOrg: result.targetOrg || store.targetOrg,
-      testLevel: result.testLevel,
+    const result = await runTui({
+      store,
+      prepare,
+      onListSessions: () => listSessions(orgKey()),
+      onSaveSession: (entry) => addSession(orgKey(), entry),
     });
+
+    // Checkpoint the selection to history on a real action, so a failed deploy
+    // can be picked back up later via the R picker.
+    if (result.action !== 'quit' && (result.entries || []).length) {
+      addSession(orgKey(), { entries: result.entries, targetOrg: result.targetOrg || store.targetOrg, testLevel: result.testLevel });
+    }
 
     // blessed leaves the terminal in raw mode on exit — restore cooked mode so
     // the streamed `sf` output (and any later prompt) behaves normally.
@@ -192,6 +189,7 @@ program
 
     const { retrieveFromSource, deployToTarget } = await import('../src/orgflow.js'); // pulls SDR
     const { actionBanner, step, resultBox, fmtElapsed, c } = await import('../src/cli-ui.js');
+    const retrieveDir = retrievePath(orgKey());
     const t0 = Date.now();
     const elapsed = () => fmtElapsed(Date.now() - t0);
 
