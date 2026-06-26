@@ -229,6 +229,7 @@ program
   .description('Live, change-set-style metadata selector (org → org)')
   .option('-s, --source <org>', 'source org to browse (alias or username)')
   .option('-o, --target <org>', 'target org to deploy to')
+  .option('--import <file>', 'pre-select components from an existing package.xml or metadata .zip')
   .option('--refetch', 're-retrieve from the source org even if a matching zip is cached')
   .option('--demo', 'run with fixture data, no org connection')
   .action(async (cmdOpts) => {
@@ -239,7 +240,7 @@ program
     const { loadSession, saveSession } = await import('../src/session.js');
     const store = createStore({ sourceOrg: '', targetOrg: cmdOpts.target || '' });
     let prepare;
-    let restoredCount = 0;
+    let seedNote = null; // splash line describing imported/restored selection
     let initialTestLevel = null;
 
     if (cmdOpts.demo) {
@@ -249,7 +250,7 @@ program
         step.begin('Loading demo data …');
         const { DEMO_TYPES, DEMO_COMPONENTS } = await import('../src/demo.js');
         step.done('Demo data ready');
-        if (restoredCount) { step.begin(`Restored ${restoredCount} staged component(s) from last session`); step.done(); }
+        if (seedNote) { step.begin(seedNote); step.done(); }
         return {
           types: DEMO_TYPES,
           loadComponents: async (type) => { setComponents(store, type, DEMO_COMPONENTS[type] || []); },
@@ -282,7 +283,7 @@ program
         step.begin('Describing metadata types …');
         const types = (await describeTypes(conn, apiVersion)).filter((t) => !FOLDER_TYPES.has(t.name));
         step.done(`Found ${types.length} metadata types`);
-        if (restoredCount) { step.begin(`Restored ${restoredCount} staged component(s) from last session`); step.done(); }
+        if (seedNote) { step.begin(seedNote); step.done(); }
         const all = await listOrgs();
         const orgs = all
           .filter((o) => (o.aliases?.[0] || o.username) !== source)
@@ -295,14 +296,27 @@ program
       };
     }
 
-    // Restore the last selection for this source org (so a failed/abandoned
-    // deploy never costs you the re-selection).
-    const session = loadSession(store.sourceOrg);
-    if (session) {
-      setSelection(store, session.entries);
-      restoredCount = (session.entries || []).length;
-      if (!cmdOpts.target && session.targetOrg) store.targetOrg = session.targetOrg;
-      initialTestLevel = session.testLevel || null;
+    // Seed the selection: --import (a package.xml/zip) takes precedence;
+    // otherwise restore the last session for this source org.
+    if (cmdOpts.import) {
+      try {
+        const { importPackage } = await import('../src/import-manifest.js');
+        const { entries, wildcards } = await importPackage(path.resolve(cmdOpts.import));
+        setSelection(store, entries);
+        seedNote = `Imported ${entries.length} component(s) from ${path.basename(cmdOpts.import)}`
+          + (wildcards.length ? ` · skipped ${wildcards.length} '*' type(s)` : '');
+      } catch (e) {
+        console.error(`Could not import ${cmdOpts.import}: ${e.message}`);
+        process.exit(1);
+      }
+    } else {
+      const session = loadSession(store.sourceOrg);
+      if (session && (session.entries || []).length) {
+        setSelection(store, session.entries);
+        if (!cmdOpts.target && session.targetOrg) store.targetOrg = session.targetOrg;
+        initialTestLevel = session.testLevel || null;
+        seedNote = `Restored ${session.entries.length} staged component(s) from last session`;
+      }
     }
 
     // Detach any stdin listeners left by the inquirer source-org prompt so
