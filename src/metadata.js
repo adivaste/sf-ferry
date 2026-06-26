@@ -5,6 +5,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import { cacheFile } from './paths.js';
 
 /**
  * In-folder metadata (Reports, Dashboards, Documents, EmailTemplates) needs
@@ -12,16 +13,6 @@ import path from 'node:path';
  * separately so the count is never silently wrong.
  */
 export const FOLDER_TYPES = new Set(['Report', 'Dashboard', 'Document', 'EmailTemplate']);
-
-const CACHE_ROOT = '.sfm-cache';
-
-function safe(name) {
-  return name.replace(/[^a-zA-Z0-9._@-]/g, '_');
-}
-
-function cachePath(orgKey, type) {
-  return path.join(CACHE_ROOT, safe(orgKey), `${safe(type)}.json`);
-}
 
 /**
  * All selectable metadata types in the org. Includes both top-level types
@@ -61,15 +52,18 @@ function normalize(fp) {
 }
 
 /**
- * List the components of a metadata type as normalized rows (with owner +
- * created/last-modified info from FileProperties). Cached to disk per org+type;
- * pass { refresh:true } to bypass the cache.
+ * List a metadata type's components as normalized rows (owner + created/modified
+ * from FileProperties). Cached under ~/.sfm/cache/<org>/<type>.json with the
+ * fetch time. Never auto-expires — the UI shows the age and `r` re-pulls.
+ * Returns { rows, fetchedAt }. Pass { refresh:true } to bypass the cache.
  */
 export async function listComponents(conn, type, { apiVersion, orgKey, refresh = false } = {}) {
-  const file = cachePath(orgKey, type);
+  const file = cacheFile(orgKey, type);
   if (!refresh && existsSync(file)) {
     try {
-      return JSON.parse(readFileSync(file, 'utf8'));
+      const cached = JSON.parse(readFileSync(file, 'utf8'));
+      if (cached && Array.isArray(cached.rows)) return { rows: cached.rows, fetchedAt: cached.fetchedAt || null };
+      if (Array.isArray(cached)) return { rows: cached, fetchedAt: null }; // legacy format
     } catch {
       // fall through and re-fetch on a corrupt cache file
     }
@@ -80,7 +74,8 @@ export async function listComponents(conn, type, { apiVersion, orgKey, refresh =
   const rows = arr.filter((fp) => fp && fp.fullName).map(normalize);
   rows.sort((a, b) => a.fullName.localeCompare(b.fullName));
 
+  const fetchedAt = new Date().toISOString();
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(rows, null, 2));
-  return rows;
+  writeFileSync(file, JSON.stringify({ fetchedAt, apiVersion, rows }, null, 2));
+  return { rows, fetchedAt };
 }

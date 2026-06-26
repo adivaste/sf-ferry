@@ -13,10 +13,12 @@ export const COLUMNS = [
 export function createStore({ sourceOrg = '', targetOrg = '' } = {}) {
   return {
     sourceOrg,
+    sourceUsername: '', // canonical username (cache/session/retrieve key)
     targetOrg,
     types: [], // [{name, inFolder}]
     activeType: null,
     componentsByType: {}, // type -> rows[]
+    fetchedAt: {}, // type -> ISO timestamp the cache was fetched
     filter: '',
     sortKey: 'fullName',
     sortDir: 1, // 1 asc, -1 desc
@@ -29,8 +31,9 @@ export function setTypes(store, types) {
   if (!store.activeType && types.length) store.activeType = types[0].name;
 }
 
-export function setComponents(store, type, rows) {
+export function setComponents(store, type, rows, fetchedAt = null) {
   store.componentsByType[type] = rows;
+  if (fetchedAt) store.fetchedAt[type] = fetchedAt;
 }
 
 export function hasComponents(store, type) {

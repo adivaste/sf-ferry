@@ -3,6 +3,7 @@ import {
   COLUMNS,
   visibleRows,
   setTypes,
+  setSelection,
   setActiveType,
   setFilter,
   setSort,
@@ -27,6 +28,16 @@ const pad = (s, n) => {
   return s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length);
 };
 const shortDate = (d) => (d ? String(d).slice(0, 10) : '');
+function ago(iso) {
+  if (!iso) return '';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms) || ms < 0) return '';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
 // Escape literal braces so component names can't break blessed tag parsing.
 const esc = (s) => s.replace(/\{/g, '{open}').replace(/\}/g, '{close}');
 
@@ -85,6 +96,7 @@ const HELP_TEXT = [
   '{bold}{cyan-fg}Actions{/cyan-fg}{/bold}',
   '  t                 choose target org',
   '  l                 cycle test level',
+  '  s                 load a saved selection (history)',
   '  r                 refresh current type from the org',
   '  b                 write package.xml only',
   '  v / d             validate / deploy (org → org)',
@@ -101,7 +113,7 @@ const HELP_TEXT = [
  * rows visible in the window are ever formatted/rendered (like fzf / vim).
  * Scrolling is pure array slicing — O(viewport), independent of total size.
  */
-export function runTui({ store, loadComponents, orgs = [], prepare = null, initialTestLevel = null }) {
+export function runTui({ store, loadComponents, orgs = [], prepare = null, onListSessions = null }) {
   // loadComponents/orgs may be (re)assigned by `prepare` after the splash.
   // eslint-disable-next-line no-param-reassign
   let _load = loadComponents;
@@ -135,7 +147,7 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, initi
     const removeDedupe = () => { program.emit = realEmit; };
     applyDedupe();
 
-    let testLevel = initialTestLevel && TEST_LEVELS.includes(initialTestLevel) ? initialTestLevel : 'RunLocalTests';
+    let testLevel = 'RunLocalTests';
     let busy = false;
     let filtering = false;
     let modal = false;
@@ -334,7 +346,9 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, initi
         }
       }
       table.setContent(lines.join('\n'));
-      table.setLabel(` Components ${total ? cursor + 1 : 0}/${total} `);
+      const fetched = store.fetchedAt[store.activeType];
+      const age = fetched ? `  ·  fetched ${ago(fetched)} (r=refresh)` : '';
+      table.setLabel(` Components ${total ? cursor + 1 : 0}/${total}${age} `);
     }
     function renderBasket() {
       const groups = selectionGrouped(store);
@@ -358,7 +372,7 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, initi
       } else if (basket.focused) {
         line1 = ' {cyan-fg}↑↓{/cyan-fg} scroll  {cyan-fg}tab{/cyan-fg} pane  {cyan-fg}M-b{/cyan-fg} hide panel';
       } else {
-        line1 = ' {cyan-fg}↑↓/jk{/cyan-fg} move  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level';
+        line1 = ' {cyan-fg}↑↓/jk{/cyan-fg} move  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level  {cyan-fg}s{/cyan-fg} sessions';
       }
       footer.setContent(
         `${line1}\n` +
@@ -529,6 +543,43 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, initi
       screen.render();
       const close = () => { modal = false; picker.destroy(); renderFooter(); focusPane(table); };
       picker.on('select', (_i, idx) => { store.targetOrg = _orgs[idx].value; renderHeader(); close(); });
+      picker.key('escape', close);
+      picker.key('q', close);
+    });
+
+    // s → load a past selection from history (we never auto-restore).
+    screen.key('s', () => {
+      if (filtering || modal || typing()) return;
+      const sessions = onListSessions ? onListSessions() : [];
+      if (!sessions.length) { status('No saved sessions yet — they\'re checkpointed when you act or quit.'); return; }
+      modal = true;
+      const fmt = (s) => {
+        const cnt = (s.entries || []).length;
+        const tgt = s.targetOrg ? ` → ${s.targetOrg}` : '';
+        const lbl = s.label ? `${s.label} · ` : '';
+        return `${lbl}${cnt} comp${tgt} · ${s.testLevel || 'RunLocalTests'} · ${ago(s.savedAt)}`;
+      };
+      const picker = blessed.list({
+        parent: screen, label: ' Load a saved selection (esc to cancel) ', top: 'center', left: 'center',
+        width: '72%', height: '60%', border: 'line', keys: true, mouse: true, tags: true,
+        items: sessions.map(fmt),
+        style: { selected: { bg: 'cyan', fg: 'black' }, border: { fg: 'cyan' }, label: { fg: 'cyan' } },
+        scrollbar: { ch: ' ', style: { bg: 'cyan' } },
+      });
+      picker.focus();
+      screen.render();
+      const close = () => { modal = false; picker.destroy(); renderFooter(); focusPane(table); };
+      picker.on('select', (_i, idx) => {
+        const s = sessions[idx];
+        if (s) {
+          setSelection(store, s.entries);
+          if (s.targetOrg) store.targetOrg = s.targetOrg;
+          if (s.testLevel && TEST_LEVELS.includes(s.testLevel)) testLevel = s.testLevel;
+          recomputeView();
+          renderTable(); renderBasket(); renderHeader(); renderTypes();
+        }
+        close();
+      });
       picker.key('escape', close);
       picker.key('q', close);
     });
