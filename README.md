@@ -68,6 +68,22 @@ deploy output streams normally. `RunSpecifiedTests` prompts for the test classes
 > Manage orgs with `sfm orgs` (lists everything `sf` is logged into).
 > The earlier **local-source** workflow below (`add` / `delete` / `deploy`) still works unchanged.
 
+### Import from an existing package / change set
+
+Already have a `package.xml` or a metadata `.zip` (e.g. an exported change set)?
+Pre-select all of its components in the source org:
+
+```bash
+sfm ui --source uat --import path/to/package.xml
+sfm ui --source uat --import path/to/changeset.zip   # reads package.xml inside
+```
+
+It reads the manifest, checks those components in the grid (the splash shows
+`Imported N component(s) from …`), and you review/adjust before deploying.
+Wildcard members (`<members>*</members>`) can't be expanded to specific picks,
+so those types are skipped with a note — open the type and press `a` to select
+all if you want them.
+
 ### Your selection is remembered
 
 The selection (plus last target org + test level) is saved per source org to
