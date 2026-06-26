@@ -10,6 +10,22 @@ export const c = {
   bold: (s) => e(1) + s + R,
 };
 
+// A minimal stderr spinner for the pre-blessed phase (e.g. loading orgs).
+// Returns a stop(doneMsg?) function. unref'd so it never holds the process.
+export function startSpinner(msg) {
+  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  let i = 0;
+  const draw = () => process.stderr.write(`\r${c.cyan(frames[i])} ${msg}`);
+  draw();
+  const t = setInterval(() => { i = (i + 1) % frames.length; draw(); }, 90);
+  if (t.unref) t.unref();
+  return (doneMsg) => {
+    clearInterval(t);
+    process.stderr.write('\r\x1b[2K'); // clear the spinner line
+    if (doneMsg) process.stderr.write(`${doneMsg}\n`);
+  };
+}
+
 export function ago(iso) {
   if (!iso) return 'unknown';
   const ms = Date.now() - new Date(iso).getTime();
