@@ -168,9 +168,11 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     // ---- layout ----------------------------------------------------------
     // Mirror the footer's metrics exactly: height 3, bordered (no padding).
     const header = blessed.box({
-      parent: screen, top: 0, left: 0, height: 3, width: '100%',
-      tags: true, border: 'line',
-      style: { fg: 'white', bg: 236, border: { fg: 'gray' } }, // dark bar (not blue)
+      // solid dark-grey bar filling all 3 rows (no border), stretched edge-to-edge
+      // (left+right, not width:100%, which overflowed by a column)
+      parent: screen, top: 0, left: 0, right: 0, height: 3,
+      tags: true, valign: 'middle',
+      style: { fg: 'white', bg: 236 },
     });
     const typesList = blessed.list({
       parent: screen, label: ' Types ', top: 3, left: 0, width: '25%', bottom: 3,
@@ -266,12 +268,13 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     // ---- rendering -------------------------------------------------------
     function renderHeader() {
       const tgt = store.targetOrg || '(press t)';
-      const div = ' {gray-fg}│{/gray-fg} ';
+      // labels/divider in white (visible on the grey bar); values in bright colors
+      const div = ' {white-fg}│{/white-fg} ';
       header.setContent(
-        ` {bold}{white-bg}{black-fg} ⚓ FERRY {/black-fg}{/white-bg}{/bold}` + div +
-        `{gray-fg}source{/gray-fg} {cyan-fg}{bold}${store.sourceOrg}{/bold}{/cyan-fg} ` +
-        `{gray-fg}→{/gray-fg} {gray-fg}target{/gray-fg} {yellow-fg}{bold}${tgt}{/bold}{/yellow-fg}` + div +
-        `{gray-fg}tests{/gray-fg} {magenta-fg}{bold}${testLevel}{/bold}{/magenta-fg}` + div +
+        ` {bold}⚓ {cyan-fg}FERRY{/cyan-fg}{/bold}` + div +
+        `{white-fg}source{/white-fg} {cyan-fg}{bold}${store.sourceOrg}{/bold}{/cyan-fg}  ` +
+        `{white-fg}→  target{/white-fg} {yellow-fg}{bold}${tgt}{/bold}{/yellow-fg}` + div +
+        `{white-fg}tests{/white-fg} {magenta-fg}{bold}${testLevel}{/bold}{/magenta-fg}` + div +
         `{green-fg}{bold}✓ ${selectionCount(store)}{/bold} selected{/green-fg}`,
       );
     }
