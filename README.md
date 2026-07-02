@@ -8,14 +8,14 @@ metadata (owner · last modified · created) via the Metadata API.
 
 ---
 
-## `ferry ui` — change-set-style selector (v2, live org → org)
+## `ferry` — change-set-style selector (v2, live org → org)
 
 A full-screen terminal UI for migrating metadata between orgs (e.g. **uat → prod**)
 without change sets. Modeled on Gearset / the VS Code Org Browser.
 
 ```bash
-ferry ui --source uat --target prod     # live: browse uat, deploy to prod
-ferry ui --demo                         # try it with fixture data, no org needed
+ferry --source uat --target prod     # live: browse uat, deploy to prod
+ferry --demo                         # try it with fixture data, no org needed
 ```
 
 ```
@@ -68,8 +68,8 @@ Already have a `package.xml` or a metadata `.zip` (e.g. an exported change set)?
 Pre-select all of its components in the source org:
 
 ```bash
-ferry ui --source uat --import path/to/package.xml
-ferry ui --source uat --import path/to/changeset.zip   # reads package.xml inside
+ferry --source uat --import path/to/package.xml
+ferry --source uat --import path/to/changeset.zip   # reads package.xml inside
 ```
 
 It reads the manifest, checks those components in the grid (the splash shows
@@ -122,7 +122,7 @@ Requires Node 18+ and the `sf` CLI (used for the retrieve/deploy steps).
 
 | Command | Description |
 |---------|-------------|
-| `ferry ui` | the live org → org selector → validate/deploy (flags: `--source`, `--target`, `--import <file>`, `--refetch`, `--demo`) |
+| `ferry` (or `ferry go`) | the live org → org selector → validate/deploy (flags: `--source`, `--target`, `--import <file>`, `--refetch`, `--demo`) |
 | `ferry orgs` | list the orgs `sf` is authenticated to |
 | `ferry status` | show cached state: saved sessions, metadata cache, retrieve zips |
 | `ferry clean [--all]` | remove cached state (`--all` also clears saved sessions) |
@@ -130,7 +130,7 @@ Requires Node 18+ and the `sf` CLI (used for the retrieve/deploy steps).
 ## Migrating uat → prod
 
 ```bash
-ferry ui --source uat --target prod
+ferry --source uat --target prod
 ```
 
 Pick components, choose a test level (`l`), then `v` to validate and `d` to

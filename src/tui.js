@@ -122,7 +122,7 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
   return new Promise((resolve) => {
     const screen = blessed.screen({
       smartCSR: true,
-      title: 'sfm — metadata selector',
+      title: 'ferry — metadata migrator',
       fullUnicode: true,
       autoPadding: true,
     });
@@ -708,7 +708,7 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     screen.key('b', () => confirmThen(`Write package.xml with ${count()} component(s)?`, 'build'));
     screen.key('v', () => confirmThen(`Validate ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?`, 'validate'));
     screen.key('d', () => confirmThen(`Deploy ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?`, 'deploy'));
-    screen.key('q', () => { if (filtering || modal || typing()) return; confirmAction('Quit sfm?  Your selection will be lost.', doQuit); });
+    screen.key('q', () => { if (filtering || modal || typing()) return; confirmAction('Quit ferry?  Your selection will be lost.', doQuit); });
     screen.key('C-c', () => doQuit()); // Ctrl+C always quits immediately (hard escape)
 
     function cyclePane(dir) {
