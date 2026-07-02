@@ -123,6 +123,8 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     const screen = blessed.screen({
       smartCSR: true,
       title: 'ferry — metadata migrator',
+      terminal: 'xterm-256color', // assume a 256-color terminal so hex / 256-index
+      forceUnicode: true, //        colors aren't downsampled to the nearest 16
       fullUnicode: true,
       autoPadding: true,
     });
@@ -171,8 +173,9 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       // solid dark-grey bar filling all 3 rows (no border), stretched edge-to-edge
       // (left+right, not width:100%, which overflowed by a column)
       parent: screen, top: 0, left: 0, right: 0, height: 3,
-      tags: true, valign: 'middle',
-      style: { fg: 'white', bg: 236 },
+      tags: true, valign: 'middle', 
+      border: 'line',
+      style: { border : { fg: 'gray' } },
     });
     const typesList = blessed.list({
       parent: screen, label: ' Types ', top: 3, left: 0, width: '25%', bottom: 3,
@@ -269,7 +272,7 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     function renderHeader() {
       const tgt = store.targetOrg || '(press t)';
       // labels/divider in white (visible on the grey bar); values in bright colors
-      const div = ' {white-fg}│{/white-fg} ';
+      const div = '  {white-fg}|{/white-fg}  ';
       header.setContent(
         ` {bold}⚓ {cyan-fg}FERRY{/cyan-fg}{/bold}` + div +
         `{white-fg}source{/white-fg} {cyan-fg}{bold}${store.sourceOrg}{/bold}{/cyan-fg}  ` +
