@@ -532,15 +532,15 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     // We manage keys ourselves (keys:false) so wrap-around works — blessed's
     // built-in list nav clamps at the ends.
     function openPicker({ label, items, onChoose }) {
-      if (!items.length) return;
+      const n = items.length; // capture BEFORE blessed — its list mutates the array you pass in
+      if (!n) return;
       modal = true;
       const picker = blessed.list({
         parent: screen, label, top: 'center', left: 'center', width: '66%', height: '60%',
-        border: 'line', keys: false, mouse: true, tags: true, items,
+        border: 'line', keys: false, mouse: true, tags: true, items: items.slice(), // blessed gets its own copy
         style: { selected: { bg: 'cyan', fg: 'black' }, border: { fg: 'cyan' }, label: { fg: 'cyan' } },
         scrollbar: { ch: ' ', style: { bg: 'cyan' } },
       });
-      const n = items.length;
       const close = () => { modal = false; picker.destroy(); renderFooter(); focusPane(table); };
       const move = (d) => { picker.select((((picker.selected || 0) + d) % n + n) % n); screen.render(); };
       picker.key(['down', 'j'], () => move(1));
