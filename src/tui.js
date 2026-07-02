@@ -175,7 +175,7 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       parent: screen, top: 0, left: 0, right: 0, height: 3,
       tags: true, valign: 'middle', 
       border: 'line',
-      style: { border : { fg: 'gray' } },
+      style: { border : { fg: 235 } },
     });
     const typesList = blessed.list({
       parent: screen, label: ' Types ', top: 3, left: 0, width: '25%', bottom: 3,
@@ -185,27 +185,27 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     });
     const filterBox = blessed.textbox({
       parent: screen, label: ' Filter (/) ', top: 3, left: '25%', width: '45%', height: 3,
-      border: 'line', inputOnFocus: true, style: { border: { fg: 'gray' }, label: { fg: 'cyan' } },
+      border: 'line', inputOnFocus: true, style: { border: { fg: 235 }, label: { fg: 'cyan' } },
     });
     const table = blessed.box({
       parent: screen, label: ' Components ', top: 6, left: '25%', width: '45%', bottom: 3,
       border: 'line', tags: true, keys: true, mouse: true, scrollable: false,
-      style: { border: { fg: 'gray' }, label: { fg: 'cyan' } },
+      style: { border: { fg: 235 }, label: { fg: 'cyan' } },
     });
     const basket = blessed.box({
       parent: screen, label: ' Selected ', top: 3, left: '70%', right: 0, bottom: 3,
       border: 'line', tags: true, scrollable: true, alwaysScroll: true, mouse: true, keys: true,
       scrollbar: { ch: ' ', style: { bg: 'green' } },
-      style: { border: { fg: 'gray' }, label: { fg: 'green' } },
+      style: { border: { fg: 235 }, label: { fg: 'green' } },
     });
     const footer = blessed.box({
       parent: screen, bottom: 0, left: 0, width: '100%', height: 3,
-      border: 'line', tags: true, style: { border: { fg: 'gray' } },
+      border: 'line', tags: true, style: { border: { fg: 235 } },
     });
 
     const panes = [typesList, table, basket];
     function focusPane(el) {
-      for (const p of panes) p.style.border.fg = 'gray';
+      for (const p of panes) p.style.border.fg = 235;
       el.style.border.fg = 'cyan';
       el.focus();
       focusedPane = el;
@@ -374,9 +374,9 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       // Context-aware: show the keys relevant to the focused pane.
       let line1;
       if (typesList.focused) {
-        line1 = ' {cyan-fg}type{/cyan-fg} find type  {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}enter{/cyan-fg} open  {cyan-fg}^B{/cyan-fg} hide panel';
+        line1 = ' {cyan-fg}type{/cyan-fg} find type  {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}enter{/cyan-fg} open  {cyan-fg}Ctrl+B{/cyan-fg} hide panel';
       } else if (basket.focused) {
-        line1 = ' {cyan-fg}↑↓{/cyan-fg} scroll  {cyan-fg}tab{/cyan-fg} pane  {cyan-fg}M-b{/cyan-fg} hide panel';
+        line1 = ' {cyan-fg}↑↓{/cyan-fg} scroll  {cyan-fg}tab{/cyan-fg} pane  {cyan-fg}Alt+B{/cyan-fg} hide panel';
       } else {
         line1 = ' {cyan-fg}↑↓/jk{/cyan-fg} move  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level  {cyan-fg}s{/cyan-fg} sessions';
       }

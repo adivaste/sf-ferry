@@ -83,10 +83,19 @@ program
         stop();
         if (orgs.length === 0) { console.error('No authenticated orgs. Run `sf org login web`.'); process.exit(1); }
         const { select } = await import('@inquirer/prompts');
-        source = await select({
-          message: 'Source org to browse',
-          choices: orgs.map((o) => ({ name: orgLabel(o), value: o.aliases?.[0] || o.username })),
-        });
+        try {
+          source = await select({
+            message: 'Source org to browse',
+            choices: orgs.map((o) => ({ name: orgLabel(o), value: o.aliases?.[0] || o.username })),
+          });
+        } catch (e) {
+          // Ctrl+C / Esc at the org picker → clean exit, not a stack trace.
+          if (e && (e.name === 'ExitPromptError' || /force closed|SIGINT/i.test(e.message || ''))) {
+            console.log('Cancelled.');
+            process.exit(0);
+          }
+          throw e;
+        }
       }
       store.sourceOrg = source;
       prepare = async (step) => {
