@@ -15,6 +15,7 @@ export function gatherStatus(home = ferryHome()) {
     for (const f of readdirSync(sdir).filter((x) => x.endsWith('.json'))) {
       try {
         const list = JSON.parse(readFileSync(path.join(sdir, f), 'utf8'));
+        if (!Array.isArray(list)) continue; // a corrupt/non-array file isn't a session list
         out.sessions.push({ org: f.replace(/\.json$/, ''), count: list.length, newest: list[0]?.savedAt || null });
       } catch { /* skip unreadable */ }
     }
