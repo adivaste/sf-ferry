@@ -51,7 +51,7 @@ program
     const { apiVersion, manifestDir, defaultTestLevel } = settings(program.opts());
     const { retrieveDir: retrievePath } = await import('../src/paths.js');
 
-    const { createStore, setTypes, setComponents, setSelection } = await import('../src/store.js');
+    const { createStore, setComponents, setSelection } = await import('../src/store.js');
     const { listSessions, addSession } = await import('../src/session.js');
     const store = createStore({ sourceOrg: '', targetOrg: cmdOpts.target || '' });
     const orgKey = () => store.sourceUsername || store.sourceOrg;
@@ -436,4 +436,12 @@ program
     }
   });
 
-program.parseAsync(process.argv);
+program.parseAsync(process.argv).catch((e) => {
+  // A thrown async action would otherwise surface as an unhandled rejection
+  // (ugly stack trace, and after the UI it can leave the terminal in raw mode).
+  try {
+    if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(false);
+  } catch { /* ignore */ }
+  console.error(e?.message || e);
+  process.exit(1);
+});
