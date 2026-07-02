@@ -7,7 +7,7 @@ import { writeManifests } from './manifest.js';
 
 export { TEST_LEVELS };
 
-const SIG_FILE = '.sfm-sig.json';
+const SIG_FILE = '.ferry-sig.json';
 
 /** Stable signature of a selection, so we can tell if a cached zip still matches. */
 export function manifestSignature(entries) {

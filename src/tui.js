@@ -268,7 +268,7 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       const tgt = store.targetOrg || '(press t)';
       const div = ' {gray-fg}│{/gray-fg} ';
       header.setContent(
-        ` {bold}{cyan-bg}{black-fg} ✷ SFM {/black-fg}{/cyan-bg}{/bold}` + div +
+        ` {bold}{cyan-bg}{black-fg} ⚓ FERRY {/black-fg}{/cyan-bg}{/bold}` + div +
         `{gray-fg}source{/gray-fg} {cyan-fg}{bold}${store.sourceOrg}{/bold}{/cyan-fg} ` +
         `{gray-fg}→{/gray-fg} {gray-fg}target{/gray-fg} {yellow-fg}{bold}${tgt}{/bold}{/yellow-fg}` + div +
         `{gray-fg}tests{/gray-fg} {magenta-fg}{bold}${testLevel}{/bold}{/magenta-fg}` + div +
@@ -759,7 +759,7 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       let sf = 0;
       const drawSplash = () => {
         const lines = [
-          '{cyan-fg}{bold}✷   S F M{/bold}{/cyan-fg}',
+          '{cyan-fg}{bold}⚓  F E R R Y{/bold}{/cyan-fg}',
           '{gray-fg}Salesforce Metadata Migrator{/gray-fg}',
           '',
         ];

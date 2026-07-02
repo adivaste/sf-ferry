@@ -6,15 +6,15 @@ const ok = (label, cond) => { assert.ok(cond, label); console.log('PASS', label)
 
 // Retrieve must use metadata format (--target-metadata-dir), NOT --output-dir
 // (source-format retrieve was silently filtered by the project's .forceignore).
-const ra = buildRetrieveArgs({ manifestPath: 'manifest/package.xml', sourceOrg: 'uat', metadataDir: '.sfm-retrieve' });
-ok('retrieve uses --target-metadata-dir', ra.includes('--target-metadata-dir') && ra.includes('.sfm-retrieve'));
+const ra = buildRetrieveArgs({ manifestPath: 'manifest/package.xml', sourceOrg: 'uat', metadataDir: '.ferry-retrieve' });
+ok('retrieve uses --target-metadata-dir', ra.includes('--target-metadata-dir') && ra.includes('.ferry-retrieve'));
 ok('retrieve does NOT use --output-dir', !ra.includes('--output-dir'));
 ok('retrieve passes manifest + source org', ra.includes('manifest/package.xml') && ra[ra.indexOf('--target-org') + 1] === 'uat');
 
 // Deploy must use --metadata-dir <zip> and NOT --single-package (zip has an
 // unpackaged/ wrapper) and NOT --source-dir.
-const da = buildOrgDeployArgs({ zipPath: `.sfm-retrieve/${RETRIEVE_ZIP}`, targetOrg: 'prod', testLevel: 'RunLocalTests' });
-ok('deploy uses --metadata-dir zip', da.includes('--metadata-dir') && da.includes(`.sfm-retrieve/${RETRIEVE_ZIP}`));
+const da = buildOrgDeployArgs({ zipPath: `.ferry-retrieve/${RETRIEVE_ZIP}`, targetOrg: 'prod', testLevel: 'RunLocalTests' });
+ok('deploy uses --metadata-dir zip', da.includes('--metadata-dir') && da.includes(`.ferry-retrieve/${RETRIEVE_ZIP}`));
 ok('deploy NOT --single-package', !da.includes('--single-package'));
 ok('deploy NOT --source-dir', !da.includes('--source-dir'));
 ok('deploy is start by default', da.includes('start') && !da.includes('validate'));

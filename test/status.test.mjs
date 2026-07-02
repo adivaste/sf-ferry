@@ -7,7 +7,7 @@ import { gatherStatus } from '../src/status.js';
 let n = 0;
 const ok = (label, cond) => { assert.ok(cond, label); console.log('PASS', label); n += 1; };
 
-const home = mkdtempSync(path.join(tmpdir(), 'sfm-status-'));
+const home = mkdtempSync(path.join(tmpdir(), 'ferry-status-'));
 try {
   ok('empty home → empty summary', (() => {
     const s = gatherStatus(home);

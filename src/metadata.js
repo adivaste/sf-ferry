@@ -53,7 +53,7 @@ function normalize(fp) {
 
 /**
  * List a metadata type's components as normalized rows (owner + created/modified
- * from FileProperties). Cached under ~/.sfm/cache/<org>/<type>.json with the
+ * from FileProperties). Cached under ~/.ferry/cache/<org>/<type>.json with the
  * fetch time. Never auto-expires — the UI shows the age and `r` re-pulls.
  * Returns { rows, fetchedAt }. Pass { refresh:true } to bypass the cache.
  */
