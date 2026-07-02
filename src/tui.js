@@ -17,6 +17,7 @@ import {
   hasComponents,
   manifestEntries,
 } from './store.js';
+// buildPackageXml (for the `p` preview) is imported lazily — it pulls in SDR.
 import { TEST_LEVELS } from './constants.js';
 
 const trunc = (s, n) => {
@@ -72,6 +73,11 @@ function highlightMatches(text, tokens) {
 
 const SPIN_FRAMES = ['|', '/', '-', '\\']; // ASCII — renders in every terminal/font
 
+// Single source of truth for the unfocused border colour. 235 is a dark grey in
+// the 256-colour palette; change it here and every idle border follows. (A focused
+// pane overrides this with cyan.)
+const DIM = 235;
+
 const HELP_TEXT = [
   '{bold}{cyan-fg}Navigation{/cyan-fg}{/bold}',
   '  ↑ ↓  /  j k       move',
@@ -86,8 +92,14 @@ const HELP_TEXT = [
   '{bold}{cyan-fg}Components pane{/cyan-fg}{/bold}',
   '  space             check / uncheck',
   '  a / c             select all / clear (current filter)',
+  '  V                 visual range-select (move, then space)',
   '  /                 filter rows (matches name + owner)',
+  '  f                 pin the filter across type switches',
   '  1 2 3 4           sort by column (press again to reverse)',
+  '',
+  '{bold}{cyan-fg}Selected pane{/cyan-fg}{/bold}',
+  '  ↑ ↓  /  j k       move within the selection',
+  '  space / x         remove the highlighted item',
   '',
   '{bold}{cyan-fg}Layout{/cyan-fg}{/bold}',
   '  Ctrl+B            hide / show the Types panel',
@@ -95,14 +107,16 @@ const HELP_TEXT = [
   '',
   '{bold}{cyan-fg}Actions{/cyan-fg}{/bold}',
   '  t                 choose target org',
-  '  l                 cycle test level',
+  '  l                 choose test level',
   '  s                 load a saved selection (history)',
+  '  S                 save the selection with a name',
+  '  p                 preview the generated package.xml',
   '  r                 refresh current type from the org',
   '  b                 write package.xml only',
   '  v / d             validate / deploy (org → org)',
-  '  (b / v / d / q ask for y/n confirmation; Ctrl+C force-quits)',
+  '  (b / v / d / q ask for confirmation; Ctrl+C force-quits)',
   '  ? / Esc           close this help',
-  '  q                 quit',
+  '  q                 quit  (offers save & quit)',
 ].join('\n');
 
 /**
@@ -113,20 +127,30 @@ const HELP_TEXT = [
  * rows visible in the window are ever formatted/rendered (like fzf / vim).
  * Scrolling is pure array slicing — O(viewport), independent of total size.
  */
-export function runTui({ store, loadComponents, orgs = [], prepare = null, onListSessions = null, initialTestLevel = null }) {
+export function runTui({
+  store, loadComponents, orgs = [], prepare = null, onListSessions = null,
+  onSaveSession = null, initialTestLevel = null, apiVersion = null,
+}) {
   // loadComponents/orgs may be (re)assigned by `prepare` after the splash.
   // eslint-disable-next-line no-param-reassign
   let _load = loadComponents;
   // eslint-disable-next-line no-param-reassign
   let _orgs = orgs;
   return new Promise((resolve) => {
+    // On a real interactive terminal we assume 256-colour + unicode so the dark
+    // grey borders (DIM=235) and box-drawing glyphs render as intended instead of
+    // being downsampled to the nearest 16 colours. We only FORCE that when it's
+    // safe — a TTY that isn't `dumb` and hasn't opted out via NO_COLOR — so we
+    // don't spray 256-colour / unicode escapes into a pipe, CI log, or a terminal
+    // that genuinely can't handle them (there blessed auto-detects instead).
+    const richTerminal = !!process.stdout.isTTY
+      && process.env.TERM !== 'dumb'
+      && !process.env.NO_COLOR;
     const screen = blessed.screen({
       smartCSR: true,
       title: 'ferry — metadata migrator',
-      terminal: 'xterm-256color', // assume a 256-color terminal so hex / 256-index
-      forceUnicode: true, //        colors aren't downsampled to the nearest 16
-      fullUnicode: true,
       autoPadding: true,
+      ...(richTerminal ? { terminal: 'xterm-256color', forceUnicode: true, fullUnicode: true } : {}),
     });
 
     // de-duplicate doubled keypresses (Node-on-Windows stdin quirk)
@@ -154,8 +178,11 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     let filtering = false;
     let modal = false;
     let typeFilter = ''; // type-ahead filter for the Types pane
+    let stickyFilter = false; // when on, the row filter survives a type switch (f)
     let leftVisible = true; // Types pane (Ctrl+B)
     let rightVisible = true; // Selected pane (Alt+B)
+    let basketCursor = 0; // highlighted item in the Selected pane
+    let visualAnchor = null; // start index of a visual range-select (null = off)
     let spinTimer = null;
     let spinFrame = 0;
     let splashTimer = null;
@@ -173,9 +200,9 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       // solid dark-grey bar filling all 3 rows (no border), stretched edge-to-edge
       // (left+right, not width:100%, which overflowed by a column)
       parent: screen, top: 0, left: 0, right: 0, height: 3,
-      tags: true, valign: 'middle', 
+      tags: true, valign: 'middle',
       border: 'line',
-      style: { border : { fg: 235 } },
+      style: { border: { fg: DIM } },
     });
     const typesList = blessed.list({
       parent: screen, label: ' Types ', top: 3, left: 0, width: '25%', bottom: 3,
@@ -185,30 +212,33 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     });
     const filterBox = blessed.textbox({
       parent: screen, label: ' Filter (/) ', top: 3, left: '25%', width: '45%', height: 3,
-      border: 'line', inputOnFocus: true, style: { border: { fg: 235 }, label: { fg: 'cyan' } },
+      border: 'line', inputOnFocus: true, style: { border: { fg: DIM }, label: { fg: 'cyan' } },
     });
     const table = blessed.box({
       parent: screen, label: ' Components ', top: 6, left: '25%', width: '45%', bottom: 3,
       border: 'line', tags: true, keys: true, mouse: true, scrollable: false,
-      style: { border: { fg: 235 }, label: { fg: 'cyan' } },
+      style: { border: { fg: DIM }, label: { fg: 'cyan' } },
     });
     const basket = blessed.box({
+      // keys:false — we drive the cursor + removal ourselves so the built-in
+      // scroll keys don't fight our navigation (see basketMove/basketRemove).
       parent: screen, label: ' Selected ', top: 3, left: '70%', right: 0, bottom: 3,
-      border: 'line', tags: true, scrollable: true, alwaysScroll: true, mouse: true, keys: true,
+      border: 'line', tags: true, scrollable: true, alwaysScroll: true, mouse: true, keys: false,
       scrollbar: { ch: ' ', style: { bg: 'green' } },
-      style: { border: { fg: 235 }, label: { fg: 'green' } },
+      style: { border: { fg: DIM }, label: { fg: 'green' } },
     });
     const footer = blessed.box({
       parent: screen, bottom: 0, left: 0, width: '100%', height: 3,
-      border: 'line', tags: true, style: { border: { fg: 235 } },
+      border: 'line', tags: true, style: { border: { fg: DIM } },
     });
 
     const panes = [typesList, table, basket];
     function focusPane(el) {
-      for (const p of panes) p.style.border.fg = 235;
+      for (const p of panes) p.style.border.fg = DIM;
       el.style.border.fg = 'cyan';
       el.focus();
       focusedPane = el;
+      renderBasket(); // reflect focus in the Selected pane (highlight on/off)
       renderFooter();
       screen.render();
     }
@@ -328,6 +358,8 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       } else {
         const term = store.filter.trim().toLowerCase();
         const tokens = term ? term.split(/\s+/) : [];
+        const rangeLo = visualAnchor == null ? -1 : Math.min(visualAnchor, cursor);
+        const rangeHi = visualAnchor == null ? -1 : Math.max(visualAnchor, cursor);
         const slice = view.slice(top, top + vh);
         for (let i = 0; i < slice.length; i += 1) {
           const r = slice[i];
@@ -341,9 +373,13 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
           const plainRaw = `${mark} ${namePlain} ${byPlain} ${mdPlain} ${cdPlain}`;
           const nameR = tokens.length ? highlightMatches(namePlain, tokens) : esc(namePlain);
           const renderedRaw = `${mark} ${nameR} ${esc(byPlain)} ${esc(mdPlain)} ${esc(cdPlain)}`;
+          const inRange = gi >= rangeLo && gi <= rangeHi;
           if (gi === cursor) {
             const padN = Math.max(0, inner - plainRaw.length);
             lines.push(`{cyan-bg}{black-fg}${renderedRaw}${' '.repeat(padN)}{/black-fg}{/cyan-bg}`);
+          } else if (inRange) {
+            const padN = Math.max(0, inner - plainRaw.length);
+            lines.push(`{blue-bg}{white-fg}${renderedRaw}${' '.repeat(padN)}{/white-fg}{/blue-bg}`);
           } else if (sel) {
             lines.push(`{green-fg}${renderedRaw}{/green-fg}`);
           } else {
@@ -356,19 +392,55 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       const age = fetched ? `  ·  fetched ${ago(fetched)} (r=refresh)` : '';
       table.setLabel(` Components ${total ? cursor + 1 : 0}/${total}${age} `);
     }
+    // Flat, display-ordered list of selected entries (mirrors the grouped view),
+    // so the Selected pane can carry a cursor for in-place removal.
+    function basketFlat() {
+      const out = [];
+      for (const g of selectionGrouped(store)) for (const fullName of g.items) out.push({ type: g.type, fullName });
+      return out;
+    }
     function renderBasket() {
       const groups = selectionGrouped(store);
       if (groups.length === 0) {
+        basketCursor = 0;
         basket.setContent('{gray-fg}Nothing selected yet.\nHighlight a row and press space.{/gray-fg}');
         return;
       }
+      const total = basketFlat().length;
+      if (basketCursor > total - 1) basketCursor = total - 1;
+      if (basketCursor < 0) basketCursor = 0;
+      const focused = basket.focused;
       const lines = [];
+      let idx = 0; // running index across all items
+      let cursorLine = 0;
       for (const g of groups) {
         lines.push(`{bold}{green-fg}${g.type}{/green-fg}{/bold} (${g.items.length})`);
-        for (const item of g.items) lines.push(`  • ${esc(item)}`);
+        for (const item of g.items) {
+          const isCur = idx === basketCursor;
+          if (isCur) cursorLine = lines.length;
+          const text = `  • ${esc(item)}`;
+          lines.push(isCur && focused ? `{cyan-bg}{black-fg}${text}{/black-fg}{/cyan-bg}` : text);
+          idx += 1;
+        }
         lines.push('');
       }
       basket.setContent(lines.join('\n'));
+      if (focused) basket.scrollTo(cursorLine);
+    }
+    function basketMove(d) {
+      const n = basketFlat().length;
+      if (!n) return;
+      basketCursor = (((basketCursor + d) % n) + n) % n;
+      renderBasket(); paint();
+    }
+    function basketRemove() {
+      const flat = basketFlat();
+      const it = flat[basketCursor];
+      if (!it) return;
+      toggleSelect(store, it.type, it.fullName);
+      if (basketCursor > flat.length - 2) basketCursor = Math.max(0, flat.length - 2);
+      renderTable(); renderBasket(); renderHeader(); renderTypes();
+      status(`Removed ${it.type} / ${it.fullName}`);
     }
     function renderFooter() {
       // Context-aware: show the keys relevant to the focused pane.
@@ -376,16 +448,20 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       if (typesList.focused) {
         line1 = ' {cyan-fg}type{/cyan-fg} find type  {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}enter{/cyan-fg} open  {cyan-fg}Ctrl+B{/cyan-fg} hide panel';
       } else if (basket.focused) {
-        line1 = ' {cyan-fg}↑↓{/cyan-fg} scroll  {cyan-fg}tab{/cyan-fg} pane  {cyan-fg}Alt+B{/cyan-fg} hide panel';
+        line1 = ' {cyan-fg}↑↓/jk{/cyan-fg} move  {red-fg}space/x{/red-fg} remove  {cyan-fg}tab{/cyan-fg} pane  {cyan-fg}Alt+B{/cyan-fg} hide panel';
       } else {
-        line1 = ' {cyan-fg}↑↓/jk{/cyan-fg} move  {cyan-fg}space{/cyan-fg} check  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level  {cyan-fg}s{/cyan-fg} sessions';
+        line1 = ' {cyan-fg}↑↓/jk{/cyan-fg} move  {cyan-fg}space{/cyan-fg} check  {cyan-fg}V{/cyan-fg} range  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}f{/cyan-fg} pin  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level';
       }
       footer.setContent(
         `${line1}\n` +
-        ' {green-fg}b{/green-fg} build   {green-fg}v{/green-fg} validate   {green-fg}d{/green-fg} deploy   {cyan-fg}tab{/cyan-fg} pane   {cyan-fg}?{/cyan-fg} help   {red-fg}q{/red-fg} quit',
+        ' {green-fg}b{/green-fg} build  {green-fg}v{/green-fg} validate  {green-fg}d{/green-fg} deploy  {cyan-fg}p{/cyan-fg} preview  {cyan-fg}s{/cyan-fg}/{cyan-fg}S{/cyan-fg} load/save  {cyan-fg}?{/cyan-fg} help  {red-fg}q{/red-fg} quit',
       );
     }
+    function renderFilterLabel() {
+      filterBox.setLabel(stickyFilter ? ' Filter (/) · pinned ' : ' Filter (/) ');
+    }
     function renderAll() {
+      renderFilterLabel();
       renderHeader(); renderTypes(); renderTable(); renderBasket(); renderFooter(); paint();
     }
     function status(msg) {
@@ -402,8 +478,13 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
         await _load(type, { refresh });
       } catch (e) {
         stopSpin();
-        status(`Error loading ${type}: ${e.message}`);
         busy = false;
+        // The active type changed but its components failed to load; recompute so
+        // `view` reflects the (now empty) active type instead of the previous
+        // type's rows — otherwise space/select would act on an invisible row.
+        recomputeView({ resetCursor: true });
+        renderHeader(); renderTypes(); renderTable(); renderFooter();
+        status(`Error loading ${type}: ${e.message}`);
         return;
       }
       stopSpin();
@@ -435,8 +516,9 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     typesList.on('select', async (_item, index) => {
       const t = filteredTypes()[index];
       if (!t) return;
-      setActiveType(store, t.name);
-      filterBox.clearValue();
+      setActiveType(store, t.name, { keepFilter: stickyFilter });
+      if (stickyFilter && store.filter) filterBox.setValue(store.filter); else filterBox.clearValue();
+      visualAnchor = null; // a range-select doesn't carry across types
       renderHeader(); renderTypes(); paint();
       await ensureLoaded(t.name);
       focusPane(table);
@@ -469,19 +551,83 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       renderTable(); renderBasket(); renderHeader(); renderTypes(); paint();
     }
 
+    function applyVisualRange() {
+      const lo = Math.min(visualAnchor, cursor);
+      const hi = Math.max(visualAnchor, cursor);
+      const rows = view.slice(lo, hi + 1);
+      visualAnchor = null;
+      if (!rows.length) { renderTable(); paint(); return; }
+      // If the whole range is already selected, the intent is to clear it;
+      // otherwise select everything in the range.
+      const allSel = rows.every((r) => isSelected(store, r.type, r.fullName));
+      for (const r of rows) {
+        const sel = isSelected(store, r.type, r.fullName);
+        if (allSel && sel) toggleSelect(store, r.type, r.fullName);
+        else if (!allSel && !sel) toggleSelect(store, r.type, r.fullName);
+      }
+      refreshMarks();
+      status(`${allSel ? 'Unselected' : 'Selected'} ${rows.length} row(s)`);
+    }
+
     screen.key('space', () => {
       if (filtering || modal || busy || !table.focused) return;
+      if (visualAnchor != null) { applyVisualRange(); return; }
       const r = view[cursor];
       if (!r) return;
       toggleSelect(store, r.type, r.fullName);
       refreshMarks(); // view membership unchanged → cursor stays put
     });
+    // Visual range-select: V drops an anchor at the cursor, move to extend the
+    // highlight, then space (de)selects the whole range. Esc / V again cancels.
+    screen.key('S-v', () => {
+      if (filtering || modal || busy || typing() || !table.focused) return;
+      visualAnchor = visualAnchor == null ? cursor : null;
+      renderTable(); paint();
+      status(visualAnchor == null
+        ? 'Visual select off'
+        : 'Visual: move, then space to (de)select the range · esc cancels');
+    });
+    table.key('escape', () => {
+      if (visualAnchor != null) { visualAnchor = null; renderTable(); status('Visual select off'); paint(); }
+    });
+
+    // Selected pane: navigate + remove in place.
+    basket.key(['down', 'j'], () => { if (basket.focused && !modal && !filtering) basketMove(1); });
+    basket.key(['up', 'k'], () => { if (basket.focused && !modal && !filtering) basketMove(-1); });
+    basket.key(['space', 'x', 'delete', 'backspace'], () => {
+      if (basket.focused && !modal && !filtering && !busy) basketRemove();
+    });
+    basket.on('wheeldown', () => { if (basket.focused) basketMove(1); });
+    basket.on('wheelup', () => { if (basket.focused) basketMove(-1); });
     // Letter/digit shortcuts are disabled while the Types pane is focused —
     // there, typing feeds the type-ahead filter instead.
     const typing = () => typesList.focused;
 
-    screen.key('a', () => { if (filtering || modal || typing()) return; selectAllVisible(store); refreshMarks(); });
-    screen.key('c', () => { if (filtering || modal || typing()) return; clearVisible(store); refreshMarks(); });
+    screen.key('a', () => {
+      if (filtering || modal || typing()) return;
+      const before = selectedCountForType(store, store.activeType);
+      selectAllVisible(store);
+      const after = selectedCountForType(store, store.activeType);
+      refreshMarks();
+      status(`+${after - before} selected · ${after} in ${store.activeType} (${view.length} shown)`);
+    });
+    screen.key('c', () => {
+      if (filtering || modal || typing()) return;
+      const before = selectedCountForType(store, store.activeType);
+      clearVisible(store);
+      const after = selectedCountForType(store, store.activeType);
+      refreshMarks();
+      status(`-${before - after} cleared · ${after} left in ${store.activeType}`);
+    });
+    // f pins the row filter so it survives switching types (great for migrating
+    // everything named "Account" across ApexClass, CustomField, Layout, …).
+    screen.key('f', () => {
+      if (filtering || modal || typing()) return;
+      stickyFilter = !stickyFilter;
+      renderFilterLabel();
+      status(stickyFilter ? 'Filter pinned — kept across type switches' : 'Filter unpinned');
+      paint();
+    });
 
     for (let n = 1; n <= COLUMNS.length; n += 1) {
       screen.key(String(n), () => {
@@ -513,7 +659,7 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     function endFilter(focusTable = true) {
       if (filterTimer) { clearTimeout(filterTimer); filterTimer = null; }
       filtering = false;
-      filterBox.style.border.fg = 'gray';
+      filterBox.style.border.fg = DIM; // was 'gray' — kept idle borders inconsistent (looked white)
       setFilter(store, filterBox.value || '');
       recomputeView({ resetCursor: true });
       renderTable();
@@ -531,13 +677,19 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     });
     screen.key('l', () => {
       if (filtering || modal || typing()) return;
-      testLevel = TEST_LEVELS[(TEST_LEVELS.indexOf(testLevel) + 1) % TEST_LEVELS.length];
-      renderHeader(); renderFooter(); paint();
+      openPicker({
+        label: ' Test level  (↑↓ wraps · esc cancels) ',
+        items: TEST_LEVELS.slice(),
+        selectedIndex: Math.max(0, TEST_LEVELS.indexOf(testLevel)),
+        onChoose: (i) => {
+          if (TEST_LEVELS[i]) { testLevel = TEST_LEVELS[i]; renderHeader(); renderFooter(); paint(); }
+        },
+      });
     });
     // Centered modal list with WRAPPING navigation (↑↓/jk cycle around the ends).
     // We manage keys ourselves (keys:false) so wrap-around works — blessed's
     // built-in list nav clamps at the ends.
-    function openPicker({ label, items, onChoose }) {
+    function openPicker({ label, items, onChoose, selectedIndex = 0 }) {
       const n = items.length; // capture BEFORE blessed — its list mutates the array you pass in
       if (!n) return;
       modal = true;
@@ -547,6 +699,7 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
         style: { selected: { bg: 'cyan', fg: 'black' }, border: { fg: 'cyan' }, label: { fg: 'cyan' } },
         scrollbar: { ch: ' ', style: { bg: 'cyan' } },
       });
+      if (selectedIndex > 0 && selectedIndex < n) picker.select(selectedIndex);
       const close = () => { modal = false; picker.destroy(); renderFooter(); focusPane(table); };
       const move = (d) => { picker.select((((picker.selected || 0) + d) % n + n) % n); screen.render(); };
       picker.key(['down', 'j'], () => move(1));
@@ -626,31 +779,33 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     }
     screen.key('?', () => { if (filtering || modal) return; toggleHelp(); });
 
-    // In-TUI prompt for RunSpecifiedTests so we never hand stdin off to another
-    // prompt after blessed (which leaves the terminal in raw mode → no input).
-    function promptTests(cb) {
+    // Generic single-line prompt, rendered INSIDE blessed so we never hand stdin
+    // off to another prompt after blessed (which leaves the terminal in raw mode
+    // → no input). cb receives the raw string, or null if cancelled.
+    function promptInput({ label, hint, initial = '', cb }) {
       modal = true;
       removeDedupe(); // let paste/burst input through unfiltered
       const box = blessed.box({
         parent: screen, top: 'center', left: 'center', width: '70%', height: 8,
-        border: 'line', tags: true,
-        label: ' Test classes — comma-separated · Enter to run · Esc to cancel ',
+        border: 'line', tags: true, label,
         style: { border: { fg: 'cyan' }, label: { fg: 'cyan' } },
       });
-      blessed.box({
-        parent: box, bottom: 1, left: 1, right: 1, height: 2, tags: true,
-        content: '{gray-fg}e.g.  MyController_Test, AccountServiceTest{/gray-fg}',
-      });
+      if (hint) {
+        blessed.box({
+          parent: box, bottom: 1, left: 1, right: 1, height: 2, tags: true, content: hint,
+        });
+      }
       const tb = blessed.textbox({
         parent: box, top: 1, left: 1, right: 1, height: 1, inputOnFocus: true,
         style: { fg: 'white', focus: { bg: 'black' } },
       });
+      if (initial) tb.setValue(initial);
       const close = (val) => {
         box.destroy();
         applyDedupe();
         modal = false;
         focusPane(table);
-        cb(val == null ? null : val.split(',').map((s) => s.trim()).filter(Boolean));
+        cb(val);
       };
       tb.on('submit', (v) => close(v));
       tb.key('escape', () => tb.cancel());
@@ -659,6 +814,68 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       tb.readInput();
       screen.render();
     }
+
+    // In-TUI prompt for RunSpecifiedTests test classes.
+    function promptTests(cb) {
+      promptInput({
+        label: ' Test classes — comma-separated · Enter to run · Esc to cancel ',
+        hint: '{gray-fg}e.g.  MyController_Test, AccountServiceTest{/gray-fg}',
+        cb: (val) => cb(val == null ? null : val.split(',').map((s) => s.trim()).filter(Boolean)),
+      });
+    }
+
+    // p → preview the package.xml this selection would generate, without writing.
+    function showPreview(xml, count) {
+      modal = true;
+      const box = blessed.box({
+        parent: screen, top: 'center', left: 'center', width: '82%', height: '82%',
+        border: 'line', tags: false, scrollable: true, alwaysScroll: true, keys: true, mouse: true,
+        label: ` package.xml preview — ${count} component(s) · Esc / q to close `,
+        padding: { left: 1, right: 1 },
+        style: { border: { fg: 'cyan' }, label: { fg: 'cyan' } },
+        scrollbar: { ch: ' ', style: { bg: 'cyan' } },
+      });
+      box.setContent(xml);
+      const close = () => { box.destroy(); modal = false; focusPane(focusedPane || table); };
+      box.key(['escape', 'q', 'p'], close);
+      box.focus();
+      paint();
+    }
+    screen.key('p', async () => {
+      if (filtering || modal || busy || typing()) return;
+      const entries = manifestEntries(store);
+      if (!entries.length) { status('Nothing selected to preview.'); return; }
+      busy = true;
+      startSpin('Building package.xml preview …');
+      let xml;
+      try {
+        const { buildPackageXml } = await import('./manifest.js'); // pulls SDR, lazy
+        xml = await buildPackageXml(entries, apiVersion);
+      } catch (e) {
+        stopSpin(); busy = false;
+        status(`Preview failed: ${e.message}`);
+        return;
+      }
+      stopSpin(); busy = false;
+      showPreview(xml, entries.length);
+    });
+
+    // S → save the current selection to history under a name you choose.
+    screen.key('S-s', () => {
+      if (filtering || modal || busy || typing()) return;
+      if (selectionCount(store) === 0) { status('Select at least one component before saving.'); return; }
+      if (!onSaveSession) { status('Saving is unavailable here.'); return; }
+      promptInput({
+        label: ' Save selection as… — Enter to save · Esc to cancel ',
+        hint: '{gray-fg}a name so you can find it later in the s picker (e.g. release-1.4){/gray-fg}',
+        cb: (name) => {
+          if (name == null) { status('Save cancelled.'); return; }
+          const label = name.trim();
+          onSaveSession({ entries: manifestEntries(store), targetOrg: store.targetOrg, testLevel, label });
+          status(label ? `Saved selection as "${label}"` : 'Saved selection to history');
+        },
+      });
+    });
 
     function resolveWith(action, tests) {
       cleanup();
@@ -677,10 +894,36 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       }
       resolveWith(action, []);
     }
-    function doQuit() {
+    function doQuit(save = false) {
       cleanup();
       screen.destroy();
-      resolve({ action: 'quit', testLevel, targetOrg: store.targetOrg, entries: manifestEntries(store) });
+      resolve({ action: 'quit', save, testLevel, targetOrg: store.targetOrg, entries: manifestEntries(store) });
+    }
+    // Quit offers a third choice — save & quit — so an abandoned selection can be
+    // recovered later via the s picker instead of being lost.
+    function confirmQuit() {
+      if (modal || filtering) return;
+      modal = true;
+      const hasSel = selectionCount(store) > 0;
+      const box = blessed.box({
+        parent: screen, top: 'center', left: 'center', width: '66%', height: 7,
+        border: 'line', tags: true, label: ' Quit ', padding: { left: 1, right: 1 },
+        style: { border: { fg: 'yellow' }, label: { fg: 'yellow' } },
+      });
+      const saveOpt = hasSel ? '{green-fg}s{/green-fg} save & quit      ' : '';
+      box.setContent(`\n  Quit ferry?\n\n  ${saveOpt}{red-fg}q{/red-fg}/{red-fg}y{/red-fg} quit (discard)      {cyan-fg}n{/cyan-fg}/{cyan-fg}esc{/cyan-fg} cancel`);
+      box.focus();
+      const close = (choice) => {
+        box.destroy();
+        if (choice === 'save') { doQuit(true); return; }
+        if (choice === 'quit') { doQuit(false); return; }
+        modal = false;
+        focusPane(focusedPane || table);
+      };
+      box.key('s', () => { if (hasSel) close('save'); });
+      box.key(['q', 'y', 'enter'], () => close('quit'));
+      box.key(['n', 'escape'], () => close('cancel'));
+      screen.render();
     }
 
     // Small y/n confirmation so q/d/v/b aren't triggered by an accidental keypress.
@@ -714,8 +957,8 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
     screen.key('b', () => confirmThen(`Write package.xml with ${count()} component(s)?`, 'build'));
     screen.key('v', () => confirmThen(`Validate ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?`, 'validate'));
     screen.key('d', () => confirmThen(`Deploy ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?`, 'deploy'));
-    screen.key('q', () => { if (filtering || modal || typing()) return; confirmAction('Quit ferry?  Your selection will be lost.', doQuit); });
-    screen.key('C-c', () => doQuit()); // Ctrl+C always quits immediately (hard escape)
+    screen.key('q', () => { if (filtering || modal || typing()) return; confirmQuit(); });
+    screen.key('C-c', () => doQuit(false)); // Ctrl+C always quits immediately (hard escape)
 
     function cyclePane(dir) {
       if (filtering || modal) return;

@@ -26,14 +26,14 @@ const timer = setTimeout(() => { console.log('RUNTESTS FAIL: timed out'); proces
 const p = runTui({ store, loadComponents, orgs: [] });
 const at = (ms, fn) => setTimeout(fn, ms);
 
-// TEST_LEVELS = [NoTestRun, RunSpecifiedTests, RunLocalTests, RunAllTestsInOrg, RunRelevantTests]
-// default is RunLocalTests (idx 2); 'l' x4 cycles -> RunSpecifiedTests (idx 1).
+// TEST_LEVELS = [NoTestRun, RunSpecifiedTests, RunLocalTests, RunAllTestsInOrg]
+// 'l' opens a picker pre-selected on the current level (RunLocalTests, idx 2);
+// 'k' (up) moves to RunSpecifiedTests (idx 1); enter chooses it.
 at(300, () => input.write('\r'));      // open ApexClass, focus table
 at(450, () => input.write(' '));       // select the highlighted component
-at(600, () => input.write('l'));       // -> RunAllTestsInOrg
-at(700, () => input.write('l'));       // -> RunRelevantTests
-at(800, () => input.write('l'));       // -> NoTestRun
-at(900, () => input.write('l'));       // -> RunSpecifiedTests
+at(600, () => input.write('l'));       // open the test-level picker (on RunLocalTests)
+at(750, () => input.write('k'));       // up -> RunSpecifiedTests
+at(900, () => input.write('\r'));      // choose it
 at(1050, () => input.write('d'));      // deploy -> confirm dialog
 at(1200, () => input.write('y'));      // confirm -> opens in-TUI test prompt
 at(1400, () => input.write('MyControllerTest, AccountServiceTest')); // type (paste-like)
