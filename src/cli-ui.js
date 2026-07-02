@@ -1,13 +1,17 @@
 // Tiny ANSI helpers for the (non-blessed) deploy/validate phase framing.
+// Honour the NO_COLOR convention (https://no-color.org) so piped/CI output stays
+// clean — when it's set, every wrapper returns the string untouched.
 const e = (n) => `\x1b[${n}m`;
 const R = e(0);
+const useColor = !process.env.NO_COLOR;
+const wrap = (n) => (s) => (useColor ? e(n) + s + R : String(s));
 export const c = {
-  cyan: (s) => e(36) + s + R,
-  green: (s) => e(32) + s + R,
-  red: (s) => e(31) + s + R,
-  yellow: (s) => e(33) + s + R,
-  gray: (s) => e(90) + s + R,
-  bold: (s) => e(1) + s + R,
+  cyan: wrap(36),
+  green: wrap(32),
+  red: wrap(31),
+  yellow: wrap(33),
+  gray: wrap(90),
+  bold: wrap(1),
 };
 
 // A minimal stderr spinner for the pre-blessed phase (e.g. loading orgs).
