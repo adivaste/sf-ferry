@@ -45,6 +45,7 @@ program
   .option('-o, --target <org>', 'target org to deploy to')
   .option('--import <file>', 'pre-select components from an existing package.xml or metadata .zip')
   .option('--refetch', 're-retrieve from the source org even if a matching zip is cached')
+  .option('-w, --wait <min>', 'minutes to wait for retrieve/deploy to finish', (v) => parseInt(v, 10), 60)
   .option('--demo', 'run with fixture data, no org connection')
   .action(async (cmdOpts) => {
     const { apiVersion, manifestDir, defaultTestLevel } = settings(program.opts());
@@ -120,6 +121,14 @@ program
           const { rows, fetchedAt } = await listComponents(conn, type, { apiVersion, orgKey: username, refresh });
           setComponents(store, type, rows, fetchedAt);
         };
+        // Land the user back where they left off: last active type + last target
+        // org for this source (both are just conveniences, never required).
+        const { getPrefs } = await import('../src/prefs.js');
+        const prefs = getPrefs(username);
+        if (prefs.lastType && types.some((t) => t.name === prefs.lastType)) store.activeType = prefs.lastType;
+        if (!store.targetOrg && prefs.lastTarget && orgs.some((o) => o.value === prefs.lastTarget)) {
+          store.targetOrg = prefs.lastTarget;
+        }
         return { types, loadComponents, orgs };
       };
     }
@@ -153,15 +162,23 @@ program
     const result = await runTui({
       store,
       prepare,
+      apiVersion,
       initialTestLevel: defaultTestLevel,
       onListSessions: () => listSessions(orgKey()),
+      onSaveSession: (payload) => addSession(orgKey(), payload),
     });
 
-    // Checkpoint the selection to history on a real action, so a failed deploy
-    // can be picked back up later via the R picker.
-    if (result.action !== 'quit' && (result.entries || []).length) {
+    // Checkpoint the selection to history on a real action — or on an explicit
+    // "save & quit" — so a failed/abandoned deploy can be picked back up via s.
+    if ((result.action !== 'quit' || result.save) && (result.entries || []).length) {
       addSession(orgKey(), { entries: result.entries, targetOrg: result.targetOrg || store.targetOrg, testLevel: result.testLevel });
     }
+
+    // Remember where the user was for next time (last target + last active type).
+    try {
+      const { setPrefs } = await import('../src/prefs.js');
+      setPrefs(orgKey(), { lastTarget: result.targetOrg || store.targetOrg, lastType: store.activeType });
+    } catch { /* prefs are best-effort */ }
 
     // blessed leaves the terminal in raw mode on exit — restore cooked mode so
     // the streamed `sf` output (and any later prompt) behaves normally.
@@ -218,10 +235,17 @@ program
 
     console.log(step(1, 2, `Retrieving ${result.entries.length} components from ${c.yellow(store.sourceOrg)} …`));
     const r = await retrieveFromSource({
-      manifestDir, retrieveDir, sourceOrg: store.sourceOrg, entries: result.entries, apiVersion, refetch: cmdOpts.refetch,
+      manifestDir, retrieveDir, sourceOrg: store.sourceOrg, entries: result.entries, apiVersion, refetch: cmdOpts.refetch, wait: cmdOpts.wait,
     });
     if (r.reused) console.log(c.gray('      ↳ reused the cached zip (selection unchanged) — pass --refetch to re-pull'));
+    const { appendLog } = await import('../src/history.js');
+    const logRun = (ok, code) => appendLog({
+      action: result.action, source: store.sourceOrg, target: result.targetOrg,
+      count: result.entries.length, testLevel: result.testLevel,
+      ok, code, elapsedMs: Date.now() - t0, mode: 'ui',
+    });
     if (r.code !== 0) {
+      logRun(false, r.code);
       console.error(resultBox({ ok: false, label: r.error || 'Retrieve failed' }));
       console.error(c.gray(`Your selection is saved — run "ferry ui" again to retry (it'll be pre-checked).`));
       process.exit(r.code);
@@ -235,6 +259,7 @@ program
       testLevel: result.testLevel,
       tests,
       validate: result.action === 'validate',
+      wait: cmdOpts.wait,
     });
 
     const past = result.action === 'validate' ? 'Validated' : 'Deployed';
@@ -244,6 +269,7 @@ program
         ? `${past} · ${result.entries.length} components · ${elapsed()}`
         : `${result.action === 'validate' ? 'Validation' : 'Deploy'} failed · see output above · ${elapsed()}`,
     }));
+    logRun(deployCode === 0, deployCode);
     if (deployCode !== 0) {
       console.error(c.gray(`Your selection is saved — run "ferry ui" again to retry (it'll be pre-checked).`));
     }
@@ -295,6 +321,119 @@ program
     }
     for (const t of targets) await rm(t, { recursive: true, force: true });
     console.log('Done.');
+  });
+
+program
+  .command('run')
+  .description('Non-interactive deploy/validate for CI — selection from --import or --session, no UI.')
+  .requiredOption('-s, --source <org>', 'source org to retrieve from (alias or username)')
+  .requiredOption('-o, --target <org>', 'target org to deploy/validate to')
+  .option('--import <file>', 'package.xml or metadata .zip that defines the selection')
+  .option('--session <name>', 'use a saved session by name/label or id instead')
+  .option('--validate', 'validate only (no deploy)')
+  .option('-t, --test-level <level>', 'NoTestRun | RunSpecifiedTests | RunLocalTests | RunAllTestsInOrg', 'RunLocalTests')
+  .option('--tests <list>', 'comma-separated test classes (required for RunSpecifiedTests)')
+  .option('-w, --wait <min>', 'minutes to wait for retrieve/deploy', (v) => parseInt(v, 10), 60)
+  .option('--refetch', 're-retrieve from the source org even if a matching zip is cached')
+  .option('--json', 'print a single JSON result object instead of human output')
+  .action(async (cmdOpts) => {
+    const { apiVersion, manifestDir } = settings(program.opts());
+    const { TEST_LEVELS } = await import('../src/constants.js');
+    const testLevel = cmdOpts.testLevel;
+    const asJson = !!cmdOpts.json;
+    const fail = (msg, code = 1) => {
+      if (asJson) console.log(JSON.stringify({ ok: false, error: msg }));
+      else console.error(msg);
+      process.exit(code);
+    };
+
+    if (!TEST_LEVELS.includes(testLevel)) fail(`Invalid --test-level "${testLevel}". Use one of: ${TEST_LEVELS.join(', ')}`);
+    if (!cmdOpts.import && !cmdOpts.session) fail('Provide --import <package.xml|zip> or --session <name> to define what to deploy.');
+
+    // Resolve the selection entries from a package.xml/zip or a saved session.
+    let entries = [];
+    if (cmdOpts.import) {
+      const { importPackage } = await import('../src/import-manifest.js');
+      try {
+        const res = await importPackage(path.resolve(cmdOpts.import));
+        entries = res.entries;
+        if (res.wildcards.length && !asJson) {
+          console.error(`Note: skipped ${res.wildcards.length} wildcard '*' type(s): ${res.wildcards.join(', ')}`);
+        }
+      } catch (e) { fail(`Could not import ${cmdOpts.import}: ${e.message}`); }
+    } else {
+      const { findSession } = await import('../src/session.js');
+      const s = findSession(cmdOpts.session);
+      if (!s) fail(`No saved session named "${cmdOpts.session}" found under ~/.ferry/sessions.`);
+      entries = s.entries || [];
+    }
+    if (!entries.length) fail('Selection is empty — nothing to deploy.');
+
+    const tests = (cmdOpts.tests || '').split(',').map((t) => t.trim()).filter(Boolean);
+    if (testLevel === 'RunSpecifiedTests' && tests.length === 0) fail('RunSpecifiedTests requires --tests <classes>.');
+
+    const action = cmdOpts.validate ? 'validate' : 'deploy';
+    const { retrieveFromSource, deployToTarget } = await import('../src/orgflow.js');
+    const { retrieveDir: retrievePath } = await import('../src/paths.js');
+    const { appendLog } = await import('../src/history.js');
+    const retrieveDir = retrievePath(cmdOpts.source);
+    const t0 = Date.now();
+    const record = (ok, code) => appendLog({
+      action, source: cmdOpts.source, target: cmdOpts.target, count: entries.length,
+      testLevel, ok, code, elapsedMs: Date.now() - t0, mode: 'ci',
+    });
+
+    let r;
+    let code;
+    try {
+      if (!asJson) console.log(`Retrieving ${entries.length} components from ${cmdOpts.source} …`);
+      r = await retrieveFromSource({
+        manifestDir, retrieveDir, sourceOrg: cmdOpts.source, entries, apiVersion, wait: cmdOpts.wait, refetch: cmdOpts.refetch,
+      });
+      if (r.code !== 0) { record(false, r.code); fail(r.error || 'Retrieve failed.', r.code); }
+
+      if (!asJson) console.log(`${action === 'validate' ? 'Validating' : 'Deploying'} to ${cmdOpts.target} (${testLevel}) …`);
+      code = await deployToTarget({
+        retrieveDir, targetOrg: cmdOpts.target, testLevel, tests, validate: action === 'validate', wait: cmdOpts.wait,
+      });
+    } catch (e) {
+      record(false, 1);
+      fail(`Could not run the sf CLI: ${e.message}. Is the Salesforce CLI installed and on PATH?`);
+    }
+    const ok = code === 0;
+    record(ok, code);
+    if (asJson) {
+      console.log(JSON.stringify({
+        ok, action, source: cmdOpts.source, target: cmdOpts.target,
+        count: entries.length, testLevel, reused: !!r.reused, code, elapsedMs: Date.now() - t0,
+      }));
+    } else {
+      console.log(ok
+        ? `✓ ${action === 'validate' ? 'Validated' : 'Deployed'} ${entries.length} components to ${cmdOpts.target}.`
+        : `✗ ${action} failed (exit ${code}) — see output above.`);
+    }
+    process.exit(code);
+  });
+
+program
+  .command('log')
+  .description('Show recent deploy/validate runs (from ~/.ferry/log.json)')
+  .option('-n, --number <n>', 'how many entries to show', (v) => parseInt(v, 10), 20)
+  .option('--json', 'print raw JSON')
+  .action(async (cmdOpts) => {
+    const { readLog } = await import('../src/history.js');
+    const { ago, fmtElapsed, c } = await import('../src/cli-ui.js');
+    const list = readLog(cmdOpts.number);
+    if (cmdOpts.json) { console.log(JSON.stringify(list, null, 2)); return; }
+    if (!list.length) { console.log('No deploys logged yet.'); return; }
+    console.log(`${c.bold('Recent ferry runs')}${c.gray('  (newest first)')}\n`);
+    for (const e of list) {
+      const mark = e.ok ? c.green('✓') : c.red('✗');
+      const verb = (e.action === 'validate' ? 'validate' : 'deploy').padEnd(8);
+      const route = `${e.source} → ${e.target}`;
+      const took = e.elapsedMs ? c.gray(` ${fmtElapsed(e.elapsedMs)}`) : '';
+      console.log(`  ${mark} ${verb} ${String(e.count).padStart(3)} comp  ${route.padEnd(38)} ${(e.testLevel || '').padEnd(18)} ${ago(e.at)}${e.mode === 'ci' ? c.gray(' [ci]') : ''}${took}`);
+    }
   });
 
 program.parseAsync(process.argv);
