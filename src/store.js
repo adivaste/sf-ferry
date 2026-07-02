@@ -40,9 +40,9 @@ export function hasComponents(store, type) {
   return Array.isArray(store.componentsByType[type]);
 }
 
-export function setActiveType(store, type) {
+export function setActiveType(store, type, { keepFilter = false } = {}) {
   store.activeType = type;
-  store.filter = '';
+  if (!keepFilter) store.filter = '';
 }
 
 export function setFilter(store, value) {

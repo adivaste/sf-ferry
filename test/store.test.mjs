@@ -72,6 +72,15 @@ const entries = manifestEntries(store);
 check('manifest entries shape', entries.every((e) => e.type && e.fullName));
 check('manifest includes lwc', entries.some((e) => e.type === 'LightningComponentBundle' && e.fullName === 'myComp'));
 
+// setActiveType clears the filter by default, but keepFilter preserves it (sticky)
+setFilter(store, 'acct');
+setActiveType(store, 'ApexClass');
+check('setActiveType clears filter by default', store.filter === '');
+setFilter(store, 'acct');
+setActiveType(store, 'LightningComponentBundle', { keepFilter: true });
+check('setActiveType keepFilter preserves filter', store.filter === 'acct');
+setFilter(store, '');
+
 // clearVisible removes only active-type visible
 setActiveType(store, 'ApexClass');
 clearVisible(store);
