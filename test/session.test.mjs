@@ -7,7 +7,7 @@ import path from 'node:path';
 const home = mkdtempSync(path.join(tmpdir(), 'ferry-home-'));
 process.env.FERRY_HOME = home;
 
-const { listSessions, addSession } = await import('../src/session.js');
+const { listSessions, addSession, findSession } = await import('../src/session.js');
 const { createStore, setSelection, selectionCount } = await import('../src/store.js');
 
 let n = 0;
@@ -42,6 +42,15 @@ try {
   const store = createStore({ sourceOrg: 'uat' });
   setSelection(store, e1);
   ok('setSelection populates store', selectionCount(store) === 2);
+
+  // findSession scans across orgs by label (case-insensitive) or id
+  addSession('ci@x.com', { entries: [{ type: 'ApexClass', fullName: 'Rel' }], label: 'release-2.0' });
+  ok('findSession by label', findSession('release-2.0')?.entries[0].fullName === 'Rel');
+  ok('findSession label is case-insensitive', findSession('RELEASE-2.0')?.label === 'release-2.0');
+  const byId = findSession('release-2.0');
+  ok('findSession by id', findSession(byId.id)?.label === 'release-2.0');
+  ok('findSession miss → null', findSession('does-not-exist') === null);
+  ok('findSession empty arg → null', findSession('') === null);
 
   console.log(`\n${n} session checks passed`);
 } finally {

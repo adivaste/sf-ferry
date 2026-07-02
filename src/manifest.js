@@ -29,6 +29,15 @@ async function toXml(cs) {
 }
 
 /**
+ * Build the package.xml text for a selection WITHOUT writing anything to disk —
+ * used for the in-UI preview (press `p`). Throws (via getTypeByName) if a type
+ * name is invalid, so the caller can surface it.
+ */
+export async function buildPackageXml(entries, apiVersion) {
+  return toXml(buildComponentSet(entries, apiVersion));
+}
+
+/**
  * Regenerate package.xml, destructiveChanges.xml and an empty-package.xml
  * from the persisted selection state. destructiveChanges.xml uses the same
  * schema as package.xml, so SDR's generator produces a valid file for both.

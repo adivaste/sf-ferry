@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { sessionsFile, ensureDir } from './paths.js';
+import { sessionsFile, ensureDir, ferryHome } from './paths.js';
 
 // A capped, deduped HISTORY of selections per org (newest first). We store but
 // never auto-restore — the UI offers a picker (R) to load one, and save (S) /
@@ -23,6 +23,26 @@ function read(orgKey) {
 /** Newest-first list of saved sessions for an org. */
 export function listSessions(orgKey) {
   return read(orgKey);
+}
+
+/**
+ * Find one saved session across ALL orgs by label (case-insensitive) or exact
+ * id — used by `ferry run --session <name>` in CI, where the org username key
+ * isn't known up front. Returns the session object or null.
+ */
+export function findSession(nameOrId) {
+  if (!nameOrId) return null;
+  const dir = path.join(ferryHome(), 'sessions');
+  if (!existsSync(dir)) return null;
+  const want = String(nameOrId).toLowerCase();
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    let list;
+    try { list = JSON.parse(readFileSync(path.join(dir, f), 'utf8')); } catch { continue; }
+    if (!Array.isArray(list)) continue;
+    const hit = list.find((s) => s && (s.id === nameOrId || (s.label || '').toLowerCase() === want));
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /**
