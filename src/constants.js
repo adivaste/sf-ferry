@@ -4,10 +4,10 @@ export const DESTRUCTIVE_FILE = 'destructiveChanges.xml';
 export const EMPTY_PACKAGE_FILE = 'empty-package.xml';
 export const STATE_FILE = '.selection.json';
 
+// The four levels the Salesforce Metadata API / sf CLI actually accept.
 export const TEST_LEVELS = [
   'NoTestRun', // deploy only — validate falls back to a check-only dry-run
   'RunSpecifiedTests',
   'RunLocalTests',
   'RunAllTestsInOrg',
-  'RunRelevantTests',
 ];
