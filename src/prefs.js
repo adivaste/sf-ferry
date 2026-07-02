@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { prefsFile, ensureDir } from './paths.js';
+import { writeJsonAtomic } from './fsjson.js';
 
 // Per-org UI preferences (last target org, last active type), so a returning
 // user lands where they left off instead of re-picking every run. Keyed by the
@@ -40,7 +41,7 @@ export function setPrefs(orgKey, patch = {}) {
   all[orgKey] = cur;
   try {
     ensureDir(path.dirname(prefsFile()));
-    writeFileSync(prefsFile(), JSON.stringify(all, null, 2));
+    writeJsonAtomic(prefsFile(), all, { pretty: true });
   } catch { /* best-effort — prefs are a convenience, never fatal */ }
   return cur;
 }

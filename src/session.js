@@ -1,6 +1,7 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { sessionsFile, ensureDir, ferryHome } from './paths.js';
+import { writeJsonAtomic } from './fsjson.js';
 
 // A capped, deduped HISTORY of selections per org (newest first). We store but
 // never auto-restore — the UI offers a picker (R) to load one, and save (S) /
@@ -64,6 +65,6 @@ export function addSession(orgKey, { entries, targetOrg, testLevel, label } = {}
   });
   const trimmed = list.slice(0, MAX);
   ensureDir(path.dirname(sessionsFile(orgKey)));
-  writeFileSync(sessionsFile(orgKey), JSON.stringify(trimmed, null, 2));
+  writeJsonAtomic(sessionsFile(orgKey), trimmed, { pretty: true });
   return trimmed;
 }
