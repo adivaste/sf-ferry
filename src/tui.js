@@ -274,9 +274,8 @@ export function runTui({
       table.left = `${lw}%`;
       table.width = `${cw}%`;
       basket.left = `${100 - rw}%`;
-      screen.render();
       renderTable(); // recompute column widths for the new center width
-      paint();
+      paint(); // single render (was rendering twice)
     }
 
     // ---- viewport helpers ------------------------------------------------
@@ -311,14 +310,24 @@ export function runTui({
         `{green-fg}{bold}✓ ${selectionCount(store)}{/bold} selected{/green-fg}`,
       );
     }
+    // Cache the filtered type list by its filter key so re-deriving it (e.g. in
+    // updateTypeItem on every space press) is free until the type-ahead changes.
+    let _typesCache = { key: null, arr: null };
     function filteredTypes() {
       const t = typeFilter.trim().toLowerCase();
-      if (!t) return store.types;
-      const toks = t.split(/\s+/);
-      return store.types.filter((x) => {
-        const n = x.name.toLowerCase();
-        return toks.every((tok) => n.includes(tok));
-      });
+      if (_typesCache.key === t && _typesCache.arr) return _typesCache.arr;
+      let arr;
+      if (!t) {
+        arr = store.types;
+      } else {
+        const toks = t.split(/\s+/);
+        arr = store.types.filter((x) => {
+          const n = x.name.toLowerCase();
+          return toks.every((tok) => n.includes(tok));
+        });
+      }
+      _typesCache = { key: t, arr };
+      return arr;
     }
     function renderTypes() {
       const arr = filteredTypes();
@@ -403,21 +412,20 @@ export function runTui({
       const age = fetched ? `  ·  fetched ${ago(fetched)} (r=refresh)` : '';
       table.setLabel(` Components ${total ? cursor + 1 : 0}/${total}${age} `);
     }
-    // Flat, display-ordered list of selected entries (mirrors the grouped view),
-    // so the Selected pane can carry a cursor for in-place removal.
-    function basketFlat() {
-      const out = [];
-      for (const g of selectionGrouped(store)) for (const fullName of g.items) out.push({ type: g.type, fullName });
-      return out;
-    }
+    // Flat, display-ordered list of selected entries, rebuilt once per basket
+    // render and reused by move/remove — so navigating the Selected pane never
+    // re-groups+re-sorts the whole selection on each keystroke.
+    let basketItems = [];
     function renderBasket() {
-      const groups = selectionGrouped(store);
-      if (groups.length === 0) {
+      const groups = selectionGrouped(store); // grouped+sorted ONCE per render
+      basketItems = [];
+      for (const g of groups) for (const fullName of g.items) basketItems.push({ type: g.type, fullName });
+      const total = basketItems.length;
+      if (total === 0) {
         basketCursor = 0;
         basket.setContent('{gray-fg}Nothing selected yet.\nHighlight a row and press space.{/gray-fg}');
         return;
       }
-      const total = basketFlat().length;
       if (basketCursor > total - 1) basketCursor = total - 1;
       if (basketCursor < 0) basketCursor = 0;
       const focused = basket.focused;
@@ -439,17 +447,16 @@ export function runTui({
       if (focused) basket.scrollTo(cursorLine);
     }
     function basketMove(d) {
-      const n = basketFlat().length;
+      const n = basketItems.length;
       if (!n) return;
       basketCursor = (((basketCursor + d) % n) + n) % n;
       renderBasket(); paint();
     }
     function basketRemove() {
-      const flat = basketFlat();
-      const it = flat[basketCursor];
+      const it = basketItems[basketCursor];
       if (!it) return;
       toggleSelect(store, it.type, it.fullName);
-      if (basketCursor > flat.length - 2) basketCursor = Math.max(0, flat.length - 2);
+      if (basketCursor > basketItems.length - 2) basketCursor = Math.max(0, basketItems.length - 2);
       refreshMarks(it.type, `Removed ${it.type} / ${it.fullName}`);
     }
     function renderFooter() {
@@ -623,14 +630,14 @@ export function runTui({
     screen.key('a', () => {
       if (filtering || modal || typing()) return;
       const before = selectedCountForType(store, store.activeType);
-      selectAllVisible(store);
+      selectAllVisible(store, view); // reuse the cached filtered+sorted view (no re-sort)
       const after = selectedCountForType(store, store.activeType);
       refreshMarks(store.activeType, `+${after - before} selected · ${after} in ${store.activeType} (${view.length} shown)`);
     });
     screen.key('c', () => {
       if (filtering || modal || typing()) return;
       const before = selectedCountForType(store, store.activeType);
-      clearVisible(store);
+      clearVisible(store, view); // reuse the cached filtered+sorted view (no re-sort)
       const after = selectedCountForType(store, store.activeType);
       refreshMarks(store.activeType, `-${before - after} cleared · ${after} left in ${store.activeType}`);
     });
@@ -767,6 +774,8 @@ export function runTui({
     function cleanup() {
       stopSpin();
       if (splashTimer) { clearInterval(splashTimer); splashTimer = null; }
+      if (filterTimer) { clearTimeout(filterTimer); filterTimer = null; }
+      if (resizeTimer) { clearTimeout(resizeTimer); resizeTimer = null; }
       removeDedupe();
     }
 
@@ -999,7 +1008,14 @@ export function runTui({
       relayout();
     });
 
-    screen.on('resize', () => { renderTable(); paint(); });
+    // Debounce resize: a window drag fires a burst of events; coalesce to one
+    // repaint on the trailing edge.
+    let resizeTimer = null;
+    screen.on('resize', () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => { resizeTimer = null; renderTable(); paint(); }, 50);
+      if (resizeTimer.unref) resizeTimer.unref();
+    });
 
     // ---- boot ------------------------------------------------------------
     function revealMain() {
