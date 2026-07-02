@@ -20,10 +20,19 @@ export function manifestSignature(entries) {
 // `unpackaged.zip` that deploys with --metadata-dir, untouched by project config.
 export const RETRIEVE_ZIP = 'unpackaged.zip';
 
+// Spawning sf.cmd on Windows needs shell:true (Node refuses to run .cmd without
+// it), but shell:true means Node does NOT quote the args — so any path with a
+// space (e.g. C:\Users\John Doe\.ferry\…) would be split by cmd.exe. Quote the
+// args ourselves for the shell case.
+function quoteWinArg(a) {
+  return /[\s"&|<>^()]/.test(a) ? `"${String(a).replace(/"/g, '""')}"` : a;
+}
+
 function sf(args) {
   return new Promise((resolve, reject) => {
     const isWin = process.platform === 'win32';
-    const child = spawn(isWin ? 'sf.cmd' : 'sf', args, { stdio: 'inherit', shell: isWin });
+    const spawnArgs = isWin ? args.map(quoteWinArg) : args;
+    const child = spawn(isWin ? 'sf.cmd' : 'sf', spawnArgs, { stdio: 'inherit', shell: isWin });
     child.on('error', reject);
     child.on('close', (code) => resolve(code ?? 1));
   });
