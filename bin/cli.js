@@ -38,8 +38,9 @@ program
   });
 
 program
-  .command('ui')
-  .description('Live, change-set-style metadata selector (org → org)')
+  .command('go', { isDefault: true })
+  .aliases(['deploy', 'ui', 'board'])
+  .description('Launch the live selector → validate/deploy (this is the default — just run `ferry`)')
   .option('-s, --source <org>', 'source org to browse (alias or username)')
   .option('-o, --target <org>', 'target org to deploy to')
   .option('--import <file>', 'pre-select components from an existing package.xml or metadata .zip')
