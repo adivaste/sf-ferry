@@ -330,6 +330,17 @@ export function runTui({
       typesList.select(idx >= 0 ? idx : 0);
       typesList.setLabel(typeFilter ? ` Types  /${typeFilter} ` : ` Types (${store.types.length}) `);
     }
+    // Update ONE type's selected-count badge in place. Toggling a component only
+    // changes a single badge, so we avoid setItems() here — rebuilding every list
+    // item drops blessed's position cache and forces a full-region repaint of the
+    // Types pane on each keypress (the visible flicker).
+    function updateTypeItem(typeName) {
+      const arr = filteredTypes();
+      const i = arr.findIndex((t) => t.name === typeName);
+      if (i < 0) return; // not in the currently filtered list — nothing on screen to update
+      const sel = selectedCountForType(store, typeName);
+      typesList.setItem(i, `${typeName}${sel ? ` {green-fg}(${sel})✓{/green-fg}` : ''}`);
+    }
     function sortHead(key, label) {
       return store.sortKey === key ? `${label} ${store.sortDir === 1 ? '▲' : '▼'}` : label;
     }
@@ -439,8 +450,7 @@ export function runTui({
       if (!it) return;
       toggleSelect(store, it.type, it.fullName);
       if (basketCursor > flat.length - 2) basketCursor = Math.max(0, flat.length - 2);
-      renderTable(); renderBasket(); renderHeader(); renderTypes();
-      status(`Removed ${it.type} / ${it.fullName}`);
+      refreshMarks(it.type, `Removed ${it.type} / ${it.fullName}`);
     }
     function renderFooter() {
       // Context-aware: show the keys relevant to the focused pane.
@@ -464,8 +474,11 @@ export function runTui({
       renderFilterLabel();
       renderHeader(); renderTypes(); renderTable(); renderBasket(); renderFooter(); paint();
     }
-    function status(msg) {
+    function setStatus(msg) {
       footer.setContent(` {yellow-fg}${msg}{/yellow-fg}`);
+    }
+    function status(msg) {
+      setStatus(msg);
       paint();
     }
 
@@ -547,8 +560,13 @@ export function runTui({
       }
     });
 
-    function refreshMarks() {
-      renderTable(); renderBasket(); renderHeader(); renderTypes(); paint();
+    // Repaint after a selection change, in a SINGLE render. Only the changed
+    // type's badge is touched (updateTypeItem, not renderTypes), and an optional
+    // status message is folded into the same paint so we never render twice.
+    function refreshMarks(changedType = store.activeType, statusMsg = null) {
+      renderTable(); renderBasket(); renderHeader(); updateTypeItem(changedType);
+      if (statusMsg != null) setStatus(statusMsg);
+      paint();
     }
 
     function applyVisualRange() {
@@ -565,8 +583,7 @@ export function runTui({
         if (allSel && sel) toggleSelect(store, r.type, r.fullName);
         else if (!allSel && !sel) toggleSelect(store, r.type, r.fullName);
       }
-      refreshMarks();
-      status(`${allSel ? 'Unselected' : 'Selected'} ${rows.length} row(s)`);
+      refreshMarks(store.activeType, `${allSel ? 'Unselected' : 'Selected'} ${rows.length} row(s)`);
     }
 
     screen.key('space', () => {
@@ -608,16 +625,14 @@ export function runTui({
       const before = selectedCountForType(store, store.activeType);
       selectAllVisible(store);
       const after = selectedCountForType(store, store.activeType);
-      refreshMarks();
-      status(`+${after - before} selected · ${after} in ${store.activeType} (${view.length} shown)`);
+      refreshMarks(store.activeType, `+${after - before} selected · ${after} in ${store.activeType} (${view.length} shown)`);
     });
     screen.key('c', () => {
       if (filtering || modal || typing()) return;
       const before = selectedCountForType(store, store.activeType);
       clearVisible(store);
       const after = selectedCountForType(store, store.activeType);
-      refreshMarks();
-      status(`-${before - after} cleared · ${after} left in ${store.activeType}`);
+      refreshMarks(store.activeType, `-${before - after} cleared · ${after} left in ${store.activeType}`);
     });
     // f pins the row filter so it survives switching types (great for migrating
     // everything named "Account" across ApexClass, CustomField, Layout, …).
