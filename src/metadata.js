@@ -2,10 +2,10 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 import { cacheFile } from './paths.js';
+import { writeJsonAtomic } from './fsjson.js';
 
 /**
  * In-folder metadata (Reports, Dashboards, Documents, EmailTemplates) needs
@@ -62,7 +62,11 @@ export async function listComponents(conn, type, { apiVersion, orgKey, refresh =
   if (!refresh && existsSync(file)) {
     try {
       const cached = JSON.parse(readFileSync(file, 'utf8'));
-      if (cached && Array.isArray(cached.rows)) return { rows: cached.rows, fetchedAt: cached.fetchedAt || null };
+      // Honour a cached listing only if it isn't from a different API version —
+      // otherwise a different --api-version would silently serve stale rows.
+      if (cached && Array.isArray(cached.rows) && (!cached.apiVersion || cached.apiVersion === apiVersion)) {
+        return { rows: cached.rows, fetchedAt: cached.fetchedAt || null };
+      }
       if (Array.isArray(cached)) return { rows: cached, fetchedAt: null }; // legacy format
     } catch {
       // fall through and re-fetch on a corrupt cache file
@@ -76,6 +80,9 @@ export async function listComponents(conn, type, { apiVersion, orgKey, refresh =
 
   const fetchedAt = new Date().toISOString();
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify({ fetchedAt, apiVersion, rows }, null, 2));
+  // Compact + atomic: the cache can be MBs (50k rows); indentation would inflate
+  // it ~30-50% for a file only ferry reads, and a non-atomic write risks a
+  // truncated file (→ silent re-fetch) on a crash mid-write.
+  writeJsonAtomic(file, { fetchedAt, apiVersion, rows });
   return { rows, fetchedAt };
 }

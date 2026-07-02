@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { logFile, ensureDir } from './paths.js';
+import { writeJsonAtomic } from './fsjson.js';
 
 // A capped, newest-first log of every deploy/validate ferry runs — from the UI
 // or from `ferry run` (CI). Lets you answer "what did I ship to prod, when, and
@@ -46,7 +47,7 @@ export function appendLog(entry = {}) {
   const trimmed = list.slice(0, MAX);
   try {
     ensureDir(path.dirname(logFile()));
-    writeFileSync(logFile(), JSON.stringify(trimmed, null, 2));
+    writeJsonAtomic(logFile(), trimmed, { pretty: true });
   } catch { /* best-effort */ }
   return trimmed;
 }
