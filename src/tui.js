@@ -528,23 +528,40 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       testLevel = TEST_LEVELS[(TEST_LEVELS.indexOf(testLevel) + 1) % TEST_LEVELS.length];
       renderHeader(); renderFooter(); paint();
     });
-    screen.key('t', () => {
-      if (filtering || modal || typing()) return;
-      if (_orgs.length === 0) { status('No other orgs found (pass --target).'); return; }
+    // Centered modal list with WRAPPING navigation (↑↓/jk cycle around the ends).
+    // We manage keys ourselves (keys:false) so wrap-around works — blessed's
+    // built-in list nav clamps at the ends.
+    function openPicker({ label, items, onChoose }) {
+      if (!items.length) return;
       modal = true;
       const picker = blessed.list({
-        parent: screen, label: ' Pick target org (esc to cancel) ', top: 'center', left: 'center',
-        width: '60%', height: '60%', border: 'line', keys: true, mouse: true,
-        items: _orgs.map((o) => o.label),
+        parent: screen, label, top: 'center', left: 'center', width: '66%', height: '60%',
+        border: 'line', keys: false, mouse: true, tags: true, items,
         style: { selected: { bg: 'cyan', fg: 'black' }, border: { fg: 'cyan' }, label: { fg: 'cyan' } },
         scrollbar: { ch: ' ', style: { bg: 'cyan' } },
       });
+      const n = items.length;
+      const close = () => { modal = false; picker.destroy(); renderFooter(); focusPane(table); };
+      const move = (d) => { picker.select((((picker.selected || 0) + d) % n + n) % n); screen.render(); };
+      picker.key(['down', 'j'], () => move(1));
+      picker.key(['up', 'k'], () => move(-1));
+      picker.key(['home', 'g'], () => { picker.select(0); screen.render(); });
+      picker.key(['end', 'G'], () => { picker.select(n - 1); screen.render(); });
+      picker.key(['enter', 'return', 'space'], () => { const i = picker.selected || 0; close(); onChoose(i); });
+      picker.on('select', (_i, idx) => { close(); onChoose(idx); }); // mouse click
+      picker.key(['escape', 'q'], close);
       picker.focus();
       screen.render();
-      const close = () => { modal = false; picker.destroy(); renderFooter(); focusPane(table); };
-      picker.on('select', (_i, idx) => { store.targetOrg = _orgs[idx].value; renderHeader(); close(); });
-      picker.key('escape', close);
-      picker.key('q', close);
+    }
+
+    screen.key('t', () => {
+      if (filtering || modal || typing()) return;
+      if (_orgs.length === 0) { status('No other orgs found (pass --target).'); return; }
+      openPicker({
+        label: ' Pick target org  (↑↓ wraps · esc cancels) ',
+        items: _orgs.map((o) => o.label),
+        onChoose: (i) => { if (_orgs[i]) { store.targetOrg = _orgs[i].value; renderHeader(); paint(); } },
+      });
     });
 
     // s → load a past selection from history (we never auto-restore).
@@ -552,36 +569,25 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       if (filtering || modal || typing()) return;
       const sessions = onListSessions ? onListSessions() : [];
       if (!sessions.length) { status('No saved sessions yet — they\'re checkpointed when you act or quit.'); return; }
-      modal = true;
       const fmt = (s) => {
         const cnt = (s.entries || []).length;
         const tgt = s.targetOrg ? ` → ${s.targetOrg}` : '';
         const lbl = s.label ? `${s.label} · ` : '';
         return `${lbl}${cnt} comp${tgt} · ${s.testLevel || 'RunLocalTests'} · ${ago(s.savedAt)}`;
       };
-      const picker = blessed.list({
-        parent: screen, label: ' Load a saved selection (esc to cancel) ', top: 'center', left: 'center',
-        width: '72%', height: '60%', border: 'line', keys: true, mouse: true, tags: true,
+      openPicker({
+        label: ' Load a saved selection  (↑↓ wraps · esc cancels) ',
         items: sessions.map(fmt),
-        style: { selected: { bg: 'cyan', fg: 'black' }, border: { fg: 'cyan' }, label: { fg: 'cyan' } },
-        scrollbar: { ch: ' ', style: { bg: 'cyan' } },
-      });
-      picker.focus();
-      screen.render();
-      const close = () => { modal = false; picker.destroy(); renderFooter(); focusPane(table); };
-      picker.on('select', (_i, idx) => {
-        const s = sessions[idx];
-        if (s) {
+        onChoose: (idx) => {
+          const s = sessions[idx];
+          if (!s) return;
           setSelection(store, s.entries);
           if (s.targetOrg) store.targetOrg = s.targetOrg;
           if (s.testLevel && TEST_LEVELS.includes(s.testLevel)) testLevel = s.testLevel;
           recomputeView();
-          renderTable(); renderBasket(); renderHeader(); renderTypes();
-        }
-        close();
+          renderTable(); renderBasket(); renderHeader(); renderTypes(); paint();
+        },
       });
-      picker.key('escape', close);
-      picker.key('q', close);
     });
 
     function cleanup() {

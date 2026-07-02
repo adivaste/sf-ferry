@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node bin/cli.js",
-    "test": "node test/store.test.mjs && node test/session.test.mjs && node test/orgflow.test.mjs && node test/metadata.test.mjs && node test/import.test.mjs && node test/status.test.mjs && node test/tui-smoke.mjs && node test/tui-guards.test.mjs && node test/tui-cursor.test.mjs && node test/tui-typeahead.test.mjs && node test/tui-sessions.test.mjs && node test/tui-toggle.test.mjs && node test/tui-help.test.mjs && node test/tui-confirm.test.mjs && node test/tui-splash.test.mjs && node test/tui-runtests.test.mjs && node test/tui-perf.test.mjs && node test/startup.test.mjs"
+    "test": "node test/store.test.mjs && node test/session.test.mjs && node test/orgflow.test.mjs && node test/metadata.test.mjs && node test/import.test.mjs && node test/status.test.mjs && node test/tui-smoke.mjs && node test/tui-guards.test.mjs && node test/tui-cursor.test.mjs && node test/tui-typeahead.test.mjs && node test/tui-sessions.test.mjs && node test/tui-targetwrap.test.mjs && node test/tui-toggle.test.mjs && node test/tui-help.test.mjs && node test/tui-confirm.test.mjs && node test/tui-splash.test.mjs && node test/tui-runtests.test.mjs && node test/tui-perf.test.mjs && node test/startup.test.mjs"
   },
   "dependencies": {
     "@inquirer/prompts": "^7.2.1",
