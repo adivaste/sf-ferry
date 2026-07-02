@@ -13,7 +13,7 @@ const start = Date.now();
 const res = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
 const elapsed = Date.now() - start;
 
-const ok = res.status === 0 && elapsed < THRESHOLD_MS && /Usage: sfm/.test(res.stdout);
+const ok = res.status === 0 && elapsed < THRESHOLD_MS && /Usage: ferry/.test(res.stdout);
 console.log(`--help startup: ${elapsed} ms (threshold ${THRESHOLD_MS} ms)`);
 console.log(ok ? 'STARTUP PASS' : 'STARTUP FAIL');
 if (!ok && res.status !== 0) console.log(res.stderr);

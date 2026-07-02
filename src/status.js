@@ -1,12 +1,12 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { sfmHome } from './paths.js';
+import { ferryHome } from './paths.js';
 
 /**
- * Inspect ~/.sfm and summarize what's stored — sessions, metadata cache, and
+ * Inspect ~/.ferry and summarize what's stored — sessions, metadata cache, and
  * retrieve zips per org. Pure-ish (reads disk) and testable via a temp home.
  */
-export function gatherStatus(home = sfmHome()) {
+export function gatherStatus(home = ferryHome()) {
   const out = { home, sessions: [], cache: [], retrieve: [] };
   if (!existsSync(home)) return out;
 

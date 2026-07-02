@@ -1,10 +1,10 @@
 {
-  "name": "sf-manifest-cli",
+  "name": "ferry-sf",
   "version": "1.0.0",
-  "description": "Live, change-set-style Salesforce metadata migrator (org → org): browse a source org, select components, deploy/validate to a target with full test-level control.",
+  "description": "Ferry — a live, change-set-style Salesforce metadata migrator (org → org): browse a source org, select components, deploy/validate to a target with full test-level control.",
   "type": "module",
   "bin": {
-    "sfm": "bin/cli.js"
+    "ferry": "bin/cli.js"
   },
   "scripts": {
     "start": "node bin/cli.js",

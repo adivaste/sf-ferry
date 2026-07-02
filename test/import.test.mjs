@@ -25,7 +25,7 @@ ok('reports wildcard types (not as entries)', parsed.wildcards.includes('CustomO
 ok('reads version', parsed.version === '62.0');
 
 // ---- import from a .xml file and a .zip (unpackaged/package.xml) ----
-const dir = mkdtempSync(path.join(tmpdir(), 'sfm-import-'));
+const dir = mkdtempSync(path.join(tmpdir(), 'ferry-import-'));
 try {
   const xmlPath = path.join(dir, 'package.xml');
   writeFileSync(xmlPath, XML);

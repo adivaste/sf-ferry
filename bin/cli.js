@@ -11,13 +11,13 @@ import { PACKAGE_FILE } from '../src/constants.js';
 const program = new Command();
 
 program
-  .name('sfm')
+  .name('ferry')
   .description('Live, change-set-style Salesforce metadata migrator (org → org).')
   .option('-m, --manifest-dir <dir>', 'where package.xml is written', 'manifest')
   .option('-a, --api-version <ver>', 'API version (default: from sfdx-project.json or 62.0)');
 
 function settings(opts) {
-  const cfg = loadConfig(); // ~/.sfm/config.json
+  const cfg = loadConfig(); // ~/.ferry/config.json
   const project = resolveProject();
   const apiVersion = opts.apiVersion || cfg.apiVersion || project.apiVersion;
   const manifestDir = path.resolve(opts.manifestDir || 'manifest');
@@ -213,7 +213,7 @@ program
     if (r.reused) console.log(c.gray('      ↳ reused the cached zip (selection unchanged) — pass --refetch to re-pull'));
     if (r.code !== 0) {
       console.error(resultBox({ ok: false, label: r.error || 'Retrieve failed' }));
-      console.error(c.gray(`Your selection is saved — run "sfm ui" again to retry (it'll be pre-checked).`));
+      console.error(c.gray(`Your selection is saved — run "ferry ui" again to retry (it'll be pre-checked).`));
       process.exit(r.code);
     }
 
@@ -235,19 +235,19 @@ program
         : `${result.action === 'validate' ? 'Validation' : 'Deploy'} failed · see output above · ${elapsed()}`,
     }));
     if (deployCode !== 0) {
-      console.error(c.gray(`Your selection is saved — run "sfm ui" again to retry (it'll be pre-checked).`));
+      console.error(c.gray(`Your selection is saved — run "ferry ui" again to retry (it'll be pre-checked).`));
     }
     process.exit(deployCode);
   });
 
 program
   .command('status')
-  .description('Show sfm cached state: saved sessions, metadata cache, retrieve zips')
+  .description('Show ferry cached state: saved sessions, metadata cache, retrieve zips')
   .action(async () => {
     const { gatherStatus } = await import('../src/status.js');
     const { ago, c } = await import('../src/cli-ui.js');
     const s = gatherStatus();
-    console.log(`${c.bold('sfm state')}  ${c.gray(s.home)}\n`);
+    console.log(`${c.bold('ferry state')}  ${c.gray(s.home)}\n`);
     console.log(c.cyan('Saved sessions') + c.gray('  (press s in the UI to load one)'));
     if (!s.sessions.length) console.log('  (none)');
     for (const x of s.sessions) console.log(`  ${x.org.padEnd(38)} ${String(x.count).padStart(2)} saved · newest ${ago(x.newest)}`);
@@ -257,19 +257,19 @@ program
     console.log(`\n${c.cyan('Retrieve zips')}`);
     if (!s.retrieve.length) console.log('  (none)');
     for (const x of s.retrieve) console.log(`  ${x.org.padEnd(38)} ${x.sizeKb} KB · ${ago(x.at)}`);
-    console.log(`\n${c.gray('sfm clean        remove cache + retrieve (keeps sessions)')}`);
-    console.log(c.gray('sfm clean --all  remove everything under ~/.sfm'));
+    console.log(`\n${c.gray('ferry clean        remove cache + retrieve (keeps sessions)')}`);
+    console.log(c.gray('ferry clean --all  remove everything under ~/.ferry'));
   });
 
 program
   .command('clean')
-  .description('Remove sfm cached state (cache + retrieve; --all also removes saved sessions)')
-  .option('--all', 'also remove saved sessions (everything under ~/.sfm)')
+  .description('Remove ferry cached state (cache + retrieve; --all also removes saved sessions)')
+  .option('--all', 'also remove saved sessions (everything under ~/.ferry)')
   .option('-y, --yes', 'skip the confirmation prompt')
   .action(async (cmdOpts) => {
-    const { sfmHome } = await import('../src/paths.js');
+    const { ferryHome } = await import('../src/paths.js');
     const { rm } = await import('node:fs/promises');
-    const home = sfmHome();
+    const home = ferryHome();
     const targets = cmdOpts.all
       ? [home]
       : [path.join(home, 'cache'), path.join(home, 'retrieve')];
@@ -278,7 +278,7 @@ program
     if (!cmdOpts.yes) {
       const { confirm } = await import('@inquirer/prompts');
       const go = await confirm({
-        message: cmdOpts.all ? 'Remove ALL sfm state, including saved sessions?' : 'Remove cache + retrieve zips?',
+        message: cmdOpts.all ? 'Remove ALL ferry state, including saved sessions?' : 'Remove cache + retrieve zips?',
         default: false,
       });
       if (!go) return console.log('Cancelled.');

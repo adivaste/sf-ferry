@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 // Point the global state home at a temp dir BEFORE importing modules that read it.
-const home = mkdtempSync(path.join(tmpdir(), 'sfm-home-'));
-process.env.SFM_HOME = home;
+const home = mkdtempSync(path.join(tmpdir(), 'ferry-home-'));
+process.env.FERRY_HOME = home;
 
 const { listSessions, addSession } = await import('../src/session.js');
 const { createStore, setSelection, selectionCount } = await import('../src/store.js');

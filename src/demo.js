@@ -1,4 +1,4 @@
-/** Fixture data so `sfm ui --demo` runs without connecting to an org. */
+/** Fixture data so `ferry ui --demo` runs without connecting to an org. */
 export const DEMO_TYPES = [
   { name: 'ApexClass', inFolder: false },
   { name: 'ApexTrigger', inFolder: false },
