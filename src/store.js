@@ -66,7 +66,13 @@ function compare(a, b, key) {
   return 0;
 }
 
-/** Rows of the active type after filter + sort. */
+/**
+ * Rows of the active type after filter + sort. The TUI caches the result in
+ * `view` and only re-invokes this on a filter/sort/type change (never per
+ * keystroke), so an in-place sort of the filtered slice is the right call here —
+ * a decorate-sort-undecorate would only help a full re-sort while regressing the
+ * common already-sorted case and adding per-sort allocation/GC pressure.
+ */
 export function visibleRows(store) {
   const rows = store.componentsByType[store.activeType] || [];
   const term = store.filter.trim().toLowerCase();
@@ -107,16 +113,19 @@ export function toggleSelect(store, type, fullName) {
   if (set.size === 0) delete store.selected[type];
 }
 
-export function selectAllVisible(store) {
+// `rows` lets the caller pass the already-filtered+sorted view so we don't
+// re-filter and (needlessly) re-sort the whole type just to enumerate names for
+// a Set. Falls back to visibleRows() when omitted (tests / non-UI callers).
+export function selectAllVisible(store, rows) {
   const set = bucket(store, store.activeType);
-  for (const r of visibleRows(store)) set.add(r.fullName);
+  for (const r of (rows || visibleRows(store))) set.add(r.fullName);
   if (set.size === 0) delete store.selected[store.activeType];
 }
 
-export function clearVisible(store) {
+export function clearVisible(store, rows) {
   const set = store.selected[store.activeType];
   if (!set) return;
-  for (const r of visibleRows(store)) set.delete(r.fullName);
+  for (const r of (rows || visibleRows(store))) set.delete(r.fullName);
   if (set.size === 0) delete store.selected[store.activeType];
 }
 
