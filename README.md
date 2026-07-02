@@ -27,8 +27,8 @@ ferry --demo                         # try it with fixture data, no org needed
 │  CustomObj ││ [x] Name ▲ │ Mod By │…││ LWC (2)              │
 │  LWC  (2)✓ ││ [x] AccountController …││  • invoiceList       │
 └────────────┘└───────────────────────┘└──────────────────────┘
- ↑↓ move  enter open type  space check  a all  c clear  / filter  1-4 sort  t target  l test-level
- b build package.xml   v validate   d deploy   q quit
+ ↑↓ move  space check  V range  a all  c clear  / filter  f pin  1-4 sort  t target  l test-level
+ b build  v validate  d deploy  p preview  s/S load/save  q quit
 ```
 
 **Why live (not local files):** the columns you actually want to sort by —
@@ -44,18 +44,23 @@ true org-to-org migration, no local project required.
 | `↑ ↓` / `j k` | move within a pane |
 | `PgUp PgDn` / `g G` | page / jump to top / bottom of the list |
 | `enter` | open the highlighted type (loads its components) |
-| `space` | check / uncheck the highlighted component |
+| `space` | check / uncheck the highlighted component (or remove it, in the Selected pane) |
+| `V` | visual range-select: drop an anchor, move, then `space` (de)selects the run |
 | `a` / `c` | select-all / clear (respects the current filter) |
 | `/` | focus the filter box (searches name + owner) |
+| `f` | pin the filter so it survives switching types |
 | `1`–`4` | sort by column; press again to reverse (or click the header) |
-| `t` | choose the target org · `l` cycle the test level |
+| `t` | choose the target org · `l` choose the test level |
+| `s` / `S` | load a saved selection · save the current one with a name |
+| `p` | preview the generated `package.xml` |
 | `Ctrl+B` / `Alt+B` | hide/show the left (Types) / right (Selected) panel to widen the table |
 | `?` | full keybinding help overlay |
 
 Filtering highlights the matched letters (fzf-style), a spinner shows while a
-type loads, and the footer shows the keys relevant to the focused pane.
+type loads, and the footer shows the keys relevant to the focused pane. The
+Selected pane is editable — `tab` into it and `space`/`x` removes an item.
 | `r` | refresh the current type from the org (bypass cache) |
-| `b` | write `package.xml` only · `v` validate · `d` deploy · `q` quit |
+| `b` | write `package.xml` only · `v` validate · `d` deploy · `q` quit (offers save & quit) |
 
 `v` (validate) and `d` (deploy) hand off to the `sf` CLI after the UI closes, so
 deploy output streams normally. `RunSpecifiedTests` prompts for the test classes.
@@ -122,10 +127,20 @@ Requires Node 18+ and the `sf` CLI (used for the retrieve/deploy steps).
 
 | Command | Description |
 |---------|-------------|
-| `ferry` (or `ferry go`) | the live org → org selector → validate/deploy (flags: `--source`, `--target`, `--import <file>`, `--refetch`, `--demo`) |
+| `ferry` (or `ferry go`) | the live org → org selector → validate/deploy (flags: `--source`, `--target`, `--import <file>`, `--refetch`, `--wait`, `--demo`) |
+| `ferry run` | non-interactive deploy/validate for CI — selection from `--import`/`--session`, `--validate`, `--test-level`, `--json` (no UI) |
+| `ferry log [-n N] [--json]` | recent deploy/validate history |
 | `ferry orgs` | list the orgs `sf` is authenticated to |
 | `ferry status` | show cached state: saved sessions, metadata cache, retrieve zips |
 | `ferry clean [--all]` | remove cached state (`--all` also clears saved sessions) |
+
+### CI example
+
+```bash
+# validate a package.xml against prod, machine-readable result
+ferry run --source uat --target prod --import manifest/package.xml \
+  --validate --test-level RunLocalTests --json
+```
 
 ## Migrating uat → prod
 
