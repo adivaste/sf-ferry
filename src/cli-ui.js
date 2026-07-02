@@ -13,7 +13,7 @@ export const c = {
 // A minimal stderr spinner for the pre-blessed phase (e.g. loading orgs).
 // Returns a stop(doneMsg?) function. unref'd so it never holds the process.
 export function startSpinner(msg) {
-  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  const frames = ['|', '/', '-', '\\']; // ASCII — renders in every terminal/font
   let i = 0;
   const draw = () => process.stderr.write(`\r${c.cyan(frames[i])} ${msg}`);
   draw();

@@ -70,7 +70,7 @@ function highlightMatches(text, tokens) {
   return out;
 }
 
-const SPIN_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const SPIN_FRAMES = ['|', '/', '-', '\\']; // ASCII — renders in every terminal/font
 
 const HELP_TEXT = [
   '{bold}{cyan-fg}Navigation{/cyan-fg}{/bold}',
@@ -268,7 +268,7 @@ export function runTui({ store, loadComponents, orgs = [], prepare = null, onLis
       const tgt = store.targetOrg || '(press t)';
       const div = ' {gray-fg}│{/gray-fg} ';
       header.setContent(
-        ` {bold}{cyan-bg}{black-fg} ⚓ FERRY {/black-fg}{/cyan-bg}{/bold}` + div +
+        ` {bold}{white-bg}{black-fg} ⚓ FERRY {/black-fg}{/white-bg}{/bold}` + div +
         `{gray-fg}source{/gray-fg} {cyan-fg}{bold}${store.sourceOrg}{/bold}{/cyan-fg} ` +
         `{gray-fg}→{/gray-fg} {gray-fg}target{/gray-fg} {yellow-fg}{bold}${tgt}{/bold}{/yellow-fg}` + div +
         `{gray-fg}tests{/gray-fg} {magenta-fg}{bold}${testLevel}{/bold}{/magenta-fg}` + div +
