@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Command } from 'commander';
 import { resolveProject } from '../src/config.js';
 import { loadConfig } from '../src/userconfig.js';
-import { PACKAGE_FILE } from '../src/constants.js';
+import { PACKAGE_FILE, DEFAULT_WAIT_MINUTES } from '../src/constants.js';
 
 // Heavy modules (SDR, @salesforce/core, blessed) are imported lazily inside the
 // actions that need them, so `--help` / `orgs` start almost instantly.
@@ -45,7 +45,7 @@ program
   .option('-o, --target <org>', 'target org to deploy to')
   .option('--import <file>', 'pre-select components from an existing package.xml or metadata .zip')
   .option('--refetch', 're-retrieve from the source org even if a matching zip is cached')
-  .option('-w, --wait <min>', 'minutes to wait for retrieve/deploy to finish', (v) => parseInt(v, 10), 60)
+  .option('-w, --wait <min>', 'minutes to wait for retrieve/deploy to finish', (v) => parseInt(v, 10), DEFAULT_WAIT_MINUTES)
   .option('--demo', 'run with fixture data, no org connection')
   .action(async (cmdOpts) => {
     const { apiVersion, manifestDir, defaultTestLevel } = settings(program.opts());
@@ -333,7 +333,7 @@ program
   .option('--validate', 'validate only (no deploy)')
   .option('-t, --test-level <level>', 'NoTestRun | RunSpecifiedTests | RunLocalTests | RunAllTestsInOrg', 'RunLocalTests')
   .option('--tests <list>', 'comma-separated test classes (required for RunSpecifiedTests)')
-  .option('-w, --wait <min>', 'minutes to wait for retrieve/deploy', (v) => parseInt(v, 10), 60)
+  .option('-w, --wait <min>', 'minutes to wait for retrieve/deploy', (v) => parseInt(v, 10), DEFAULT_WAIT_MINUTES)
   .option('--refetch', 're-retrieve from the source org even if a matching zip is cached')
   .option('--json', 'print a single JSON result object instead of human output')
   .action(async (cmdOpts) => {

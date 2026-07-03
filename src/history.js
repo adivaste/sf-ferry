@@ -6,7 +6,7 @@ import { writeJsonAtomic } from './fsjson.js';
 // A capped, newest-first log of every deploy/validate ferry runs — from the UI
 // or from `ferry run` (CI). Lets you answer "what did I ship to prod, when, and
 // did it pass?" via `ferry log`. Stored in ~/.ferry/log.json.
-const MAX = 200;
+const MAX_LOG_ENTRIES = 200;
 
 function read() {
   const f = logFile();
@@ -44,7 +44,7 @@ export function appendLog(entry = {}) {
     elapsedMs: entry.elapsedMs || 0,
     mode: entry.mode || 'ui',
   });
-  const trimmed = list.slice(0, MAX);
+  const trimmed = list.slice(0, MAX_LOG_ENTRIES);
   try {
     ensureDir(path.dirname(logFile()));
     writeJsonAtomic(logFile(), trimmed, { pretty: true });

@@ -16,12 +16,14 @@ export const c = {
 
 // A minimal stderr spinner for the pre-blessed phase (e.g. loading orgs).
 // Returns a stop(doneMsg?) function. unref'd so it never holds the process.
+const SPINNER_INTERVAL_MS = 90; // frame cadence for the pre-blessed stderr spinner
+
 export function startSpinner(msg) {
   const frames = ['|', '/', '-', '\\']; // ASCII — renders in every terminal/font
   let i = 0;
   const draw = () => process.stderr.write(`\r${c.cyan(frames[i])} ${msg}`);
   draw();
-  const t = setInterval(() => { i = (i + 1) % frames.length; draw(); }, 90);
+  const t = setInterval(() => { i = (i + 1) % frames.length; draw(); }, SPINNER_INTERVAL_MS);
   if (t.unref) t.unref();
   return (doneMsg) => {
     clearInterval(t);
