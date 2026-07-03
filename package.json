@@ -2,16 +2,49 @@
   "name": "ferry-sf",
   "version": "1.0.0",
   "description": "Ferry — a live, change-set-style Salesforce metadata migrator (org → org): browse a source org, select components, deploy/validate to a target with full test-level control.",
+  "keywords": [
+    "salesforce",
+    "sfdx",
+    "sf",
+    "metadata",
+    "deploy",
+    "validate",
+    "migration",
+    "change-set",
+    "package.xml",
+    "cli",
+    "tui"
+  ],
+  "homepage": "https://github.com/adivaste/ferry-sf#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adivaste/ferry-sf.git"
+  },
+  "bugs": {
+    "url": "https://github.com/adivaste/ferry-sf/issues"
+  },
+  "author": "adivaste",
+  "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "bin": {
     "ferry": "bin/cli.js"
   },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node bin/cli.js",
     "lint": "eslint .",
-    "format": "prettier --write \"**/*.{js,mjs,json,md}\"",
-    "format:check": "prettier --check \"**/*.{js,mjs,json,md}\"",
-    "test": "node test/store.test.mjs && node test/session.test.mjs && node test/prefs.test.mjs && node test/history.test.mjs && node test/orgflow.test.mjs && node test/manifest.test.mjs && node test/metadata.test.mjs && node test/import.test.mjs && node test/status.test.mjs && node test/tui-smoke.mjs && node test/tui-guards.test.mjs && node test/tui-cursor.test.mjs && node test/tui-typeahead.test.mjs && node test/tui-sessions.test.mjs && node test/tui-targetwrap.test.mjs && node test/tui-toggle.test.mjs && node test/tui-help.test.mjs && node test/tui-confirm.test.mjs && node test/tui-splash.test.mjs && node test/tui-runtests.test.mjs && node test/tui-basket.test.mjs && node test/tui-visual.test.mjs && node test/tui-savequit.test.mjs && node test/tui-namedsave.test.mjs && node test/tui-testlevel.test.mjs && node test/tui-sticky.test.mjs && node test/tui-preview.test.mjs && node test/tui-perf.test.mjs && node test/startup.test.mjs"
+    "format": "prettier --write \"**/*.{js,mjs}\" \"*.json\"",
+    "format:check": "prettier --check \"**/*.{js,mjs}\" \"*.json\"",
+    "test": "node test/store.test.mjs && node test/session.test.mjs && node test/prefs.test.mjs && node test/history.test.mjs && node test/orgflow.test.mjs && node test/manifest.test.mjs && node test/metadata.test.mjs && node test/import.test.mjs && node test/status.test.mjs && node test/tui-smoke.mjs && node test/tui-guards.test.mjs && node test/tui-cursor.test.mjs && node test/tui-typeahead.test.mjs && node test/tui-sessions.test.mjs && node test/tui-targetwrap.test.mjs && node test/tui-toggle.test.mjs && node test/tui-help.test.mjs && node test/tui-confirm.test.mjs && node test/tui-splash.test.mjs && node test/tui-runtests.test.mjs && node test/tui-basket.test.mjs && node test/tui-visual.test.mjs && node test/tui-savequit.test.mjs && node test/tui-namedsave.test.mjs && node test/tui-testlevel.test.mjs && node test/tui-sticky.test.mjs && node test/tui-preview.test.mjs && node test/tui-perf.test.mjs && node test/startup.test.mjs",
+    "prepublishOnly": "npm run lint && npm test"
   },
   "dependencies": {
     "@inquirer/prompts": "^7.2.1",
@@ -21,7 +54,6 @@
     "fast-xml-parser": "^5.9.3",
     "jszip": "^3.10.1"
   },
-  "license": "MIT",
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@inquirer/testing": "^3.3.9",
