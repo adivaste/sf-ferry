@@ -1,153 +1,102 @@
-# ⚓ Ferry — Salesforce metadata migrator (org → org)
+# ⚓ ferry
 
-Ferry is a live, **change-set-style** terminal tool for moving Salesforce
-metadata between orgs (e.g. **uat → prod**) without change sets. Browse a source
-org in a fast full-screen UI, pick components, then validate/deploy to a target
-with full test-level control. It reuses your existing `sf` logins and reads live
-metadata (owner · last modified · created) via the Metadata API.
+**Move Salesforce metadata from one org to another, right from your terminal.**
+Browse a source org, tick the components you want, and validate or deploy them to
+a target org — like a change set, without the clicking.
 
----
-
-## `ferry` — change-set-style selector (v2, live org → org)
-
-A full-screen terminal UI for migrating metadata between orgs (e.g. **uat → prod**)
-without change sets. Modeled on Gearset / the VS Code Org Browser.
-
-```bash
-ferry --source uat --target prod     # live: browse uat, deploy to prod
-ferry --demo                         # try it with fixture data, no org needed
-```
+[![npm version](https://img.shields.io/npm/v/sf-ferry.svg)](https://www.npmjs.com/package/sf-ferry)
+[![node](https://img.shields.io/node/v/sf-ferry.svg)](https://nodejs.org)
+[![license](https://img.shields.io/npm/l/sf-ferry.svg)](./LICENSE)
 
 ```
- ferry  source: uat  →  target: prod   test-level: RunLocalTests   selected: 12
-┌ Types ─────┐┌ Filter (/) ───────────┐┌ Selected ───────────┐
-│❯ ApexClass ││ acc                   ││ ApexClass (8)        │
-│  (12)✓     │└───────────────────────┘│  • AccountController │
-│  ApexTrigger│┌ Components ───────────┐│  • LeadService       │
-│  CustomObj ││ [x] Name ▲ │ Mod By │…││ LWC (2)              │
-│  LWC  (2)✓ ││ [x] AccountController …││  • invoiceList       │
-└────────────┘└───────────────────────┘└──────────────────────┘
- ↑↓ move  space check  V range  a all  c clear  / filter  f pin  1-4 sort  t target  l test-level
- b build  v validate  d deploy  p preview  s/S load/save  q quit
+ ⚓ FERRY   source uat  →  target prod   tests RunLocalTests   ✓ 12 selected
+┌ Types (48) ─┐┌ Components  3/9 · fetched 2h ago ─┐┌ Selected ───────────┐
+│ ApexClass(9)✓││ [x] AccountService    A.Vaste     ││ ApexClass (9)        │
+│ ApexTrigger ││ [x] AccountService_Test A.Vaste◀  ││  • AccountService    │
+│ CustomField ││ [x] LeadController    J.Smith     ││  • LeadController     │
+│ Flow        ││ [ ] OrderTriggerHandler B.Lee     ││ ApexTrigger (2)      │
+└─────────────┘└──────────────────────────────────┘└──────────────────────┘
+ ↑↓ move  space check  / filter  t target  l test-level  v validate  d deploy  ? help
 ```
-
-**Why live (not local files):** the columns you actually want to sort by —
-**owner, created date, last modified** — only exist in the org's Metadata API
-(`listMetadata` → `FileProperties`). Local source files don't carry them. So the
-UI reads live metadata from the source org (reusing your existing `sf` login),
-**caches** it under `.ferry-cache/` (Refresh with `r`), and on deploy it retrieves
-the selected components from the source org and deploys them to the target —
-true org-to-org migration, no local project required.
-
-| Key | Action |
-|-----|--------|
-| `↑ ↓` / `j k` | move within a pane |
-| `PgUp PgDn` / `g G` | page / jump to top / bottom of the list |
-| `enter` | open the highlighted type (loads its components) |
-| `space` | check / uncheck the highlighted component (or remove it, in the Selected pane) |
-| `V` | visual range-select: drop an anchor, move, then `space` (de)selects the run |
-| `a` / `c` | select-all / clear (respects the current filter) |
-| `/` | focus the filter box (searches name + owner) |
-| `f` | pin the filter so it survives switching types |
-| `1`–`4` | sort by column; press again to reverse (or click the header) |
-| `t` | choose the target org · `l` choose the test level |
-| `s` / `S` | load a saved selection · save the current one with a name |
-| `p` | preview the generated `package.xml` |
-| `Ctrl+B` / `Alt+B` | hide/show the left (Types) / right (Selected) panel to widen the table |
-| `?` | full keybinding help overlay |
-
-Filtering highlights the matched letters (fzf-style), a spinner shows while a
-type loads, and the footer shows the keys relevant to the focused pane. The
-Selected pane is editable — `tab` into it and `space`/`x` removes an item.
-| `r` | refresh the current type from the org (bypass cache) |
-| `b` | write `package.xml` only · `v` validate · `d` deploy · `q` quit (offers save & quit) |
-
-`v` (validate) and `d` (deploy) hand off to the `sf` CLI after the UI closes, so
-deploy output streams normally. `RunSpecifiedTests` prompts for the test classes.
-
-> Manage orgs with `ferry orgs` (lists everything `sf` is logged into).
-
-### Import from an existing package / change set
-
-Already have a `package.xml` or a metadata `.zip` (e.g. an exported change set)?
-Pre-select all of its components in the source org:
-
-```bash
-ferry --source uat --import path/to/package.xml
-ferry --source uat --import path/to/changeset.zip   # reads package.xml inside
-```
-
-It reads the manifest, checks those components in the grid (the splash shows
-`Imported N component(s) from …`), and you review/adjust before deploying.
-Wildcard members (`<members>*</members>`) can't be expanded to specific picks,
-so those types are skipped with a note — open the type and press `a` to select
-all if you want them.
-
-### Saved selections (history) — press `s`
-
-Selections are **not** auto-restored (no surprises on launch). Instead, every
-time you act or quit, the current selection (+ target + test level) is
-checkpointed to a deduped **history (last 20 per org)**. In the UI press **`s`**
-to pick a past selection and load it back — handy after a failed deploy. See
-everything with `ferry status`.
-
-### State lives in `~/.ferry` (global)
-
-All cross-project state is under `~/.ferry/` (override with `FERRY_HOME`), keyed by
-org **username**, so it follows you regardless of which folder you run from:
-`~/.ferry/cache/<org>/…`, `~/.ferry/sessions/<org>.json`, `~/.ferry/retrieve/<org>/…`.
-The metadata cache never auto-expires — the Components pane shows
-`fetched Xh ago` and `r` re-pulls. Inspect with **`ferry status`**, wipe with
-**`ferry clean`** (`--all` also clears saved sessions). Defaults can be set in
-`~/.ferry/config.json` (`apiVersion`, `defaultTestLevel`). The only thing written
-into your project is the `package.xml` from `b`/deploy (in `./manifest`).
-
-### Performance
-
-Built for responsiveness on large orgs:
-
-- **Lazy module loading.** The heavy libraries (`@salesforce/source-deploy-retrieve` ~2.3 s and `@salesforce/core` ~1.8 s to import) load only when a command actually needs them. Light commands (`--help`, `status`, `orgs`*) start in ~0.1–0.25 s instead of ~4.4 s. SDR is deferred during `ui` until you actually deploy. (*`orgs`/`ui` still pay the one-time `@salesforce/core` connect cost.)
-- **Lazy, cached metadata.** `ui` makes one `describeMetadata` call for the type list, then one `listMetadata` call per type **only when you open it**, cached under `~/.ferry/cache/` (press `r` to refresh). Component source is never downloaded while browsing — only the selected components are retrieved, at deploy time.
-- **True virtualization (fzf-style).** The component list renders only the rows visible in the viewport (~the window height), not the whole dataset. The full filtered+sorted array is computed once per filter/sort/type change and cached; scrolling is pure array-slicing. Measured: **600+ scroll renders over a 50,000-row type in ~0.6 s** (~1 ms/render). The filter is debounced and each action is a single repaint.
-- **All metadata types.** The type list includes both top-level types and **child types** (CustomField, ValidationRule, RecordType, WebLink, ListView, FieldSet, CompactLayout, …) — everything listable that appears in a change set.
-
----
 
 ## Install
 
 ```bash
-cd sf-manifest-cli
-npm install
-npm link        # makes the `ferry` command available globally
+npm install -g sf-ferry
 ```
 
-Requires Node 18+ and the `sf` CLI (used for the retrieve/deploy steps).
+Needs **Node 18+** and the Salesforce **`sf` CLI**, already logged in to your orgs
+(ferry reuses those logins — it never asks you to sign in again).
 
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `ferry` (or `ferry go`) | the live org → org selector → validate/deploy (flags: `--source`, `--target`, `--import <file>`, `--refetch`, `--wait`, `--demo`) |
-| `ferry run` | non-interactive deploy/validate for CI — selection from `--import`/`--session`, `--validate`, `--test-level`, `--json` (no UI) |
-| `ferry log [-n N] [--json]` | recent deploy/validate history |
-| `ferry orgs` | list the orgs `sf` is authenticated to |
-| `ferry status` | show cached state: saved sessions, metadata cache, retrieve zips |
-| `ferry clean [--all]` | remove cached state (`--all` also clears saved sessions) |
-
-### CI example
-
-```bash
-# validate a package.xml against prod, machine-readable result
-ferry run --source uat --target prod --import manifest/package.xml \
-  --validate --test-level RunLocalTests --json
-```
-
-## Migrating uat → prod
+## Quick start
 
 ```bash
 ferry --source uat --target prod
 ```
 
-Pick components, choose a test level (`l`), then `v` to validate and `d` to
-deploy. Caching, saved selections (`s`), and the org → org retrieve are handled
-for you. See [BEHAVIORS.md](./BEHAVIORS.md) for exactly what is stored and where.
+Opens the selector on `uat`. Pick your components, press **`d`** to deploy (or
+**`v`** to validate). No local project or hand-written `package.xml` required.
+
+Just kicking the tires?
+
+```bash
+ferry --demo      # runs on fixture data, no org connection
+```
+
+## Why ferry
+
+- **Real columns.** Sort by owner, last-modified, and created date — details that
+  live in the org, not in local files.
+- **Pick fast.** Filter, range-select, select-all; check components across any
+  number of types, including child types like CustomField and ValidationRule.
+- **Deploy or validate** straight to the target with any test level.
+- **Never lose your place.** It remembers your selection, last target, and a
+  history of past selections — resume a failed deploy right where you left off.
+- **Scriptable.** `ferry run … --json` does the same thing headless, for CI.
+
+## Keys (the essentials)
+
+| Key | Does |
+|-----|------|
+| `↑ ↓` / `j k` | move |
+| `space` | check / uncheck (or remove, in the Selected pane) |
+| `/` | filter · `f` keep the filter across types |
+| `V` | range-select |
+| `t` · `l` | pick target org · pick test level |
+| `v` · `d` | validate · deploy |
+| `s` · `S` | load a saved selection · save one by name |
+| `?` | full keybinding help · `q` quit |
+
+## Commands
+
+| Command | Does |
+|---------|------|
+| `ferry` | the interactive selector (default) |
+| `ferry run` | headless deploy/validate for CI — `--import`/`--session`, `--validate`, `--json` |
+| `ferry log` | recent deploy history |
+| `ferry status` | what's cached (sessions, metadata, retrieve zips) |
+| `ferry clean` | clear cached state (`--all` includes saved sessions) |
+| `ferry orgs` | list your authenticated orgs |
+
+**Start from an existing manifest:**
+
+```bash
+ferry --source uat --import path/to/package.xml   # or a metadata .zip
+```
+
+**Validate in CI:**
+
+```bash
+ferry run --source uat --target prod --import manifest/package.xml \
+  --validate --test-level RunLocalTests --json
+```
+
+## Learn more
+
+- Full keybindings — press **`?`** inside the app.
+- What ferry stores and where — [BEHAVIORS.md](./BEHAVIORS.md).
+- A visual guide lives in [`docs/index.html`](./docs/index.html).
+
+## License
+
+[MIT](./LICENSE)
