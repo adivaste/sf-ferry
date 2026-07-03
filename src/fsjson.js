@@ -11,12 +11,16 @@ import { writeFileSync, renameSync, unlinkSync } from 'node:fs';
  * metadata cache) — no indentation means ~30-50% fewer bytes and less CPU.
  */
 export function writeJsonAtomic(file, obj, { pretty = false } = {}) {
-  const tmp = `${file}.${process.pid}.tmp`;
-  try {
-    writeFileSync(tmp, pretty ? JSON.stringify(obj, null, 2) : JSON.stringify(obj));
-    renameSync(tmp, file);
-  } catch (e) {
-    try { unlinkSync(tmp); } catch { /* tmp may not exist */ }
-    throw e;
-  }
+    const tmp = `${file}.${process.pid}.tmp`;
+    try {
+        writeFileSync(tmp, pretty ? JSON.stringify(obj, null, 2) : JSON.stringify(obj));
+        renameSync(tmp, file);
+    } catch (e) {
+        try {
+            unlinkSync(tmp);
+        } catch {
+            /* tmp may not exist */
+        }
+        throw e;
+    }
 }

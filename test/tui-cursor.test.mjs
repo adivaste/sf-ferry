@@ -11,7 +11,10 @@ const input = new PassThrough();
 input.setRawMode = () => {};
 input.isTTY = true;
 const output = new PassThrough();
-output.columns = 140; output.rows = 40; output.isTTY = true; output.resume();
+output.columns = 140;
+output.rows = 40;
+output.isTTY = true;
+output.resume();
 process.env.TERM = process.env.TERM || 'xterm';
 
 const store = createStore({ sourceOrg: 'DEMO', targetOrg: 'DEMO-prod' });
@@ -24,18 +27,21 @@ Object.defineProperty(process, 'stdin', { value: input, configurable: true });
 Object.defineProperty(process, 'stdout', { value: output, configurable: true });
 
 const DOWN = '\x1b[B';
-const timer = setTimeout(() => { console.log('CURSOR FAIL: timed out'); process.exit(2); }, 9000);
+const timer = setTimeout(() => {
+    console.log('CURSOR FAIL: timed out');
+    process.exit(2);
+}, 9000);
 
 const p = runTui({ store, loadComponents, orgs: [] });
 
 const at = (ms, fn) => setTimeout(fn, ms);
-at(350, () => input.write('\r'));   // open ApexClass, focus table at row 1
-at(500, () => input.write(DOWN));   // -> row 2
-at(580, () => input.write(DOWN));   // -> row 3
-at(700, () => input.write(' '));    // toggle the row-3 component ON
-at(850, () => input.write(' '));    // toggle the SAME component OFF (if cursor kept)
-at(1050, () => input.write('b'));   // build -> confirm
-at(1200, () => input.write('y'));   // confirm
+at(350, () => input.write('\r')); // open ApexClass, focus table at row 1
+at(500, () => input.write(DOWN)); // -> row 2
+at(580, () => input.write(DOWN)); // -> row 3
+at(700, () => input.write(' ')); // toggle the row-3 component ON
+at(850, () => input.write(' ')); // toggle the SAME component OFF (if cursor kept)
+at(1050, () => input.write('b')); // build -> confirm
+at(1200, () => input.write('y')); // confirm
 
 const result = await p;
 clearTimeout(timer);
@@ -45,5 +51,9 @@ Object.defineProperty(process, 'stdout', { value: realOut, configurable: true })
 const entries = result?.entries || [];
 console.log('action:', result?.action, '| entries:', entries.map((e) => e.fullName).join(', ') || '(none)');
 const ok = result?.action === 'build' && entries.length === 0;
-console.log(ok ? 'CURSOR PASS (cursor preserved across toggle)' : 'CURSOR FAIL (cursor jumped — selected wrong/extra rows)');
+console.log(
+    ok
+        ? 'CURSOR PASS (cursor preserved across toggle)'
+        : 'CURSOR FAIL (cursor jumped — selected wrong/extra rows)',
+);
 process.exit(ok ? 0 : 1);

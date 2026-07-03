@@ -9,21 +9,21 @@ import { writeJsonAtomic } from './fsjson.js';
 // ~/.ferry/prefs.json as { "<orgKey>": { lastTarget, lastType } }.
 
 function readAll() {
-  const f = prefsFile();
-  if (!existsSync(f)) return {};
-  try {
-    const j = JSON.parse(readFileSync(f, 'utf8'));
-    return j && typeof j === 'object' ? j : {};
-  } catch {
-    return {};
-  }
+    const f = prefsFile();
+    if (!existsSync(f)) return {};
+    try {
+        const j = JSON.parse(readFileSync(f, 'utf8'));
+        return j && typeof j === 'object' ? j : {};
+    } catch {
+        return {};
+    }
 }
 
 /** Preferences for one org (never null). */
 export function getPrefs(orgKey) {
-  if (!orgKey) return {};
-  const all = readAll();
-  return all[orgKey] || {};
+    if (!orgKey) return {};
+    const all = readAll();
+    return all[orgKey] || {};
 }
 
 /**
@@ -31,17 +31,19 @@ export function getPrefs(orgKey) {
  * never clobber a good value with a blank one). Returns the merged prefs.
  */
 export function setPrefs(orgKey, patch = {}) {
-  if (!orgKey) return {};
-  const all = readAll();
-  const cur = all[orgKey] || {};
-  for (const [k, v] of Object.entries(patch)) {
-    if (v == null || v === '') continue;
-    cur[k] = v;
-  }
-  all[orgKey] = cur;
-  try {
-    ensureDir(path.dirname(prefsFile()));
-    writeJsonAtomic(prefsFile(), all, { pretty: true });
-  } catch { /* best-effort — prefs are a convenience, never fatal */ }
-  return cur;
+    if (!orgKey) return {};
+    const all = readAll();
+    const cur = all[orgKey] || {};
+    for (const [k, v] of Object.entries(patch)) {
+        if (v == null || v === '') continue;
+        cur[k] = v;
+    }
+    all[orgKey] = cur;
+    try {
+        ensureDir(path.dirname(prefsFile()));
+        writeJsonAtomic(prefsFile(), all, { pretty: true });
+    } catch {
+        /* best-effort — prefs are a convenience, never fatal */
+    }
+    return cur;
 }

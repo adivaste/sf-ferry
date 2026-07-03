@@ -10,7 +10,10 @@ const input = new PassThrough();
 input.setRawMode = () => {};
 input.isTTY = true;
 const output = new PassThrough();
-output.columns = 140; output.rows = 40; output.isTTY = true; output.resume();
+output.columns = 140;
+output.rows = 40;
+output.isTTY = true;
+output.resume();
 process.env.TERM = process.env.TERM || 'xterm';
 
 const store = createStore({ sourceOrg: 'DEMO', targetOrg: 'DEMO-prod' });
@@ -22,34 +25,45 @@ const realOut = process.stdout;
 Object.defineProperty(process, 'stdin', { value: input, configurable: true });
 Object.defineProperty(process, 'stdout', { value: output, configurable: true });
 
-const timer = setTimeout(() => { console.log('RUNTESTS FAIL: timed out'); process.exit(2); }, 9000);
+const timer = setTimeout(() => {
+    console.log('RUNTESTS FAIL: timed out');
+    process.exit(2);
+}, 9000);
 const p = runTui({ store, loadComponents, orgs: [] });
 const at = (ms, fn) => setTimeout(fn, ms);
 
 // TEST_LEVELS = [NoTestRun, RunSpecifiedTests, RunLocalTests, RunAllTestsInOrg]
 // 'l' opens a picker pre-selected on the current level (RunLocalTests, idx 2);
 // 'k' (up) moves to RunSpecifiedTests (idx 1); enter chooses it.
-at(300, () => input.write('\r'));      // open ApexClass, focus table
-at(450, () => input.write(' '));       // select the highlighted component
-at(600, () => input.write('l'));       // open the test-level picker (on RunLocalTests)
-at(750, () => input.write('k'));       // up -> RunSpecifiedTests
-at(900, () => input.write('\r'));      // choose it
-at(1050, () => input.write('d'));      // deploy -> confirm dialog
-at(1200, () => input.write('y'));      // confirm -> opens in-TUI test prompt
+at(300, () => input.write('\r')); // open ApexClass, focus table
+at(450, () => input.write(' ')); // select the highlighted component
+at(600, () => input.write('l')); // open the test-level picker (on RunLocalTests)
+at(750, () => input.write('k')); // up -> RunSpecifiedTests
+at(900, () => input.write('\r')); // choose it
+at(1050, () => input.write('d')); // deploy -> confirm dialog
+at(1200, () => input.write('y')); // confirm -> opens in-TUI test prompt
 at(1400, () => input.write('MyControllerTest, AccountServiceTest')); // type (paste-like)
-at(1650, () => input.write('\r'));     // submit
+at(1650, () => input.write('\r')); // submit
 
 const result = await p;
 clearTimeout(timer);
 Object.defineProperty(process, 'stdin', { value: realIn, configurable: true });
 Object.defineProperty(process, 'stdout', { value: realOut, configurable: true });
 
-console.log('action =', result?.action, '| testLevel =', result?.testLevel, '| tests =', JSON.stringify(result?.tests));
-const ok = result?.action === 'deploy'
-  && result?.testLevel === 'RunSpecifiedTests'
-  && Array.isArray(result?.tests)
-  && result.tests.length === 2
-  && result.tests[0] === 'MyControllerTest'
-  && result.tests[1] === 'AccountServiceTest';
+console.log(
+    'action =',
+    result?.action,
+    '| testLevel =',
+    result?.testLevel,
+    '| tests =',
+    JSON.stringify(result?.tests),
+);
+const ok =
+    result?.action === 'deploy' &&
+    result?.testLevel === 'RunSpecifiedTests' &&
+    Array.isArray(result?.tests) &&
+    result.tests.length === 2 &&
+    result.tests[0] === 'MyControllerTest' &&
+    result.tests[1] === 'AccountServiceTest';
 console.log(ok ? 'RUNTESTS PASS' : 'RUNTESTS FAIL');
 process.exit(ok ? 0 : 1);

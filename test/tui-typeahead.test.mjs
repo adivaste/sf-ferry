@@ -10,7 +10,10 @@ const input = new PassThrough();
 input.setRawMode = () => {};
 input.isTTY = true;
 const output = new PassThrough();
-output.columns = 140; output.rows = 40; output.isTTY = true; output.resume();
+output.columns = 140;
+output.rows = 40;
+output.isTTY = true;
+output.resume();
 process.env.TERM = process.env.TERM || 'xterm';
 
 const store = createStore({ sourceOrg: 'DEMO', targetOrg: 'DEMO-prod' });
@@ -24,10 +27,10 @@ Object.defineProperty(process, 'stdout', { value: output, configurable: true });
 
 let selAfterA = null;
 const fail = (m) => {
-  Object.defineProperty(process, 'stdin', { value: realIn, configurable: true });
-  Object.defineProperty(process, 'stdout', { value: realOut, configurable: true });
-  console.log('TYPEAHEAD FAIL:', m);
-  process.exit(1);
+    Object.defineProperty(process, 'stdin', { value: realIn, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: realOut, configurable: true });
+    console.log('TYPEAHEAD FAIL:', m);
+    process.exit(1);
 };
 const timer = setTimeout(() => fail('timed out'), 9000);
 
@@ -37,12 +40,14 @@ const at = (ms, fn) => setTimeout(fn, ms);
 // On boot the Types pane is focused. 'a' would select-all if shortcuts weren't
 // guarded — here it must just feed the type filter.
 at(350, () => input.write('a'));
-at(500, () => { selAfterA = selectionCount(store); });
+at(500, () => {
+    selAfterA = selectionCount(store);
+});
 at(560, () => input.write('\x7f')); // backspace: clear the 'a'
 at(650, () => input.write('trig')); // filter to ApexTrigger (no double letters)
-at(850, () => input.write('\r'));   // open the single match -> ApexTrigger
-at(1050, () => input.write('q'));   // now on the table; quit -> confirm
-at(1200, () => input.write('y'));   // confirm
+at(850, () => input.write('\r')); // open the single match -> ApexTrigger
+at(1050, () => input.write('q')); // now on the table; quit -> confirm
+at(1200, () => input.write('y')); // confirm
 
 const result = await p;
 clearTimeout(timer);

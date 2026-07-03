@@ -11,7 +11,10 @@ const input = new PassThrough();
 input.setRawMode = () => {};
 input.isTTY = true;
 const output = new PassThrough();
-output.columns = 140; output.rows = 40; output.isTTY = true; output.resume();
+output.columns = 140;
+output.rows = 40;
+output.isTTY = true;
+output.resume();
 process.env.TERM = process.env.TERM || 'xterm';
 
 const store = createStore({ sourceOrg: 'DEMO', targetOrg: 'DEMO-prod' });
@@ -27,30 +30,33 @@ let resolved = false;
 let filterMidType = null;
 
 const fail = (msg) => {
-  Object.defineProperty(process, 'stdin', { value: realIn, configurable: true });
-  Object.defineProperty(process, 'stdout', { value: realOut, configurable: true });
-  console.log('GUARD FAIL:', msg);
-  process.exit(1);
+    Object.defineProperty(process, 'stdin', { value: realIn, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: realOut, configurable: true });
+    console.log('GUARD FAIL:', msg);
+    process.exit(1);
 };
 
 const timer = setTimeout(() => fail('timed out'), 8000);
 
-const p = runTui({ store, loadComponents, orgs: [] }).then((r) => { resolved = true; return r; });
+const p = runTui({ store, loadComponents, orgs: [] }).then((r) => {
+    resolved = true;
+    return r;
+});
 
 const at = (ms, fn) => setTimeout(fn, ms);
-at(300, () => input.write('\r'));     // open a type -> focus the table
-at(500, () => input.write('/'));      // enter row-filter mode
-at(560, () => input.write('a'));      // 'a' would be select-all if unguarded
-at(620, () => input.write('c'));      // 'c' would be clear if unguarded
-at(680, () => input.write('d'));      // 'd' would DEPLOY (resolve) if unguarded
+at(300, () => input.write('\r')); // open a type -> focus the table
+at(500, () => input.write('/')); // enter row-filter mode
+at(560, () => input.write('a')); // 'a' would be select-all if unguarded
+at(620, () => input.write('c')); // 'c' would be clear if unguarded
+at(680, () => input.write('d')); // 'd' would DEPLOY (resolve) if unguarded
 at(900, () => {
-  filterMidType = store.filter;
-  if (resolved) fail('a global shortcut fired while typing in the filter (resolved early)');
-  if (filterMidType !== 'acd') fail(`filter did not update live; got "${filterMidType}"`);
+    filterMidType = store.filter;
+    if (resolved) fail('a global shortcut fired while typing in the filter (resolved early)');
+    if (filterMidType !== 'acd') fail(`filter did not update live; got "${filterMidType}"`);
 });
-at(980,() => input.write('')); // escape -> cancel filter
-at(1200, () => input.write('q'));     // quit -> confirm
-at(1350, () => input.write('y'));     // confirm
+at(980, () => input.write('')); // escape -> cancel filter
+at(1200, () => input.write('q')); // quit -> confirm
+at(1350, () => input.write('y')); // confirm
 
 const result = await p;
 clearTimeout(timer);

@@ -22,12 +22,12 @@ const store = createStore({ sourceOrg: 'DEMO', targetOrg: 'DEMO-prod' });
 setTypes(store, DEMO_TYPES);
 
 const loadComponents = async (type) => {
-  setComponents(store, type, DEMO_COMPONENTS[type] || []);
+    setComponents(store, type, DEMO_COMPONENTS[type] || []);
 };
 
 const timer = setTimeout(() => {
-  console.log('SMOKE FAIL: timed out (TUI did not resolve)');
-  process.exit(2);
+    console.log('SMOKE FAIL: timed out (TUI did not resolve)');
+    process.exit(2);
 }, 6000);
 
 // Patch blessed to use our fake streams via global program options:
@@ -40,21 +40,29 @@ Object.defineProperty(process, 'stdout', { value: output, configurable: true });
 
 let result;
 try {
-  const p = runTui({ store, loadComponents, orgs: [{ label: 'prodX', value: 'prodX' }] });
+    const p = runTui({ store, loadComponents, orgs: [{ label: 'prodX', value: 'prodX' }] });
 
-  // Open a type (focus the table), select all visible rows, then build (confirm).
-  setTimeout(() => { input.write('\r'); }, 300);  // open ApexClass -> focus table
-  setTimeout(() => { input.write('a'); }, 600);   // select all visible
-  setTimeout(() => { input.write('b'); }, 900);   // build -> confirm dialog
-  setTimeout(() => { input.write('y'); }, 1050);  // confirm -> resolves with entries
+    // Open a type (focus the table), select all visible rows, then build (confirm).
+    setTimeout(() => {
+        input.write('\r');
+    }, 300); // open ApexClass -> focus table
+    setTimeout(() => {
+        input.write('a');
+    }, 600); // select all visible
+    setTimeout(() => {
+        input.write('b');
+    }, 900); // build -> confirm dialog
+    setTimeout(() => {
+        input.write('y');
+    }, 1050); // confirm -> resolves with entries
 
-  result = await p;
+    result = await p;
 } catch (e) {
-  Object.defineProperty(process, 'stdin', { value: realIn, configurable: true });
-  Object.defineProperty(process, 'stdout', { value: realOut, configurable: true });
-  clearTimeout(timer);
-  console.log('SMOKE FAIL: threw during TUI:', e.message);
-  process.exit(1);
+    Object.defineProperty(process, 'stdin', { value: realIn, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: realOut, configurable: true });
+    clearTimeout(timer);
+    console.log('SMOKE FAIL: threw during TUI:', e.message);
+    process.exit(1);
 }
 
 Object.defineProperty(process, 'stdin', { value: realIn, configurable: true });
@@ -63,8 +71,9 @@ clearTimeout(timer);
 
 const entries = result?.entries || [];
 console.log('TUI resolved with action:', result?.action, '| entries:', entries.length);
-const ok = result?.action === 'build'
-  && entries.length === DEMO_COMPONENTS.ApexClass.length
-  && entries.every((e) => e.type === 'ApexClass' && e.fullName);
+const ok =
+    result?.action === 'build' &&
+    entries.length === DEMO_COMPONENTS.ApexClass.length &&
+    entries.every((e) => e.type === 'ApexClass' && e.fullName);
 console.log(ok ? 'SMOKE PASS' : 'SMOKE FAIL: selection did not flow to entries');
 process.exit(ok ? 0 : 1);

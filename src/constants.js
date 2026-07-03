@@ -10,8 +10,8 @@ export const DEFAULT_WAIT_MINUTES = 60;
 
 // The four levels the Salesforce Metadata API / sf CLI actually accept.
 export const TEST_LEVELS = [
-  'NoTestRun', // deploy only — validate falls back to a check-only dry-run
-  'RunSpecifiedTests',
-  'RunLocalTests',
-  'RunAllTestsInOrg',
+    'NoTestRun', // deploy only — validate falls back to a check-only dry-run
+    'RunSpecifiedTests',
+    'RunLocalTests',
+    'RunAllTestsInOrg',
 ];

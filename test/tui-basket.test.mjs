@@ -9,7 +9,10 @@ const input = new PassThrough();
 input.setRawMode = () => {};
 input.isTTY = true;
 const output = new PassThrough();
-output.columns = 140; output.rows = 40; output.isTTY = true; output.resume();
+output.columns = 140;
+output.rows = 40;
+output.isTTY = true;
+output.resume();
 process.env.TERM = process.env.TERM || 'xterm';
 
 const store = createStore({ sourceOrg: 'DEMO', targetOrg: 'DEMO-prod' });
@@ -21,18 +24,21 @@ const realOut = process.stdout;
 Object.defineProperty(process, 'stdin', { value: input, configurable: true });
 Object.defineProperty(process, 'stdout', { value: output, configurable: true });
 
-const timer = setTimeout(() => { console.log('BASKET FAIL: timed out'); process.exit(2); }, 9000);
+const timer = setTimeout(() => {
+    console.log('BASKET FAIL: timed out');
+    process.exit(2);
+}, 9000);
 const p = runTui({ store, loadComponents, orgs: [] });
 const at = (ms, fn) => setTimeout(fn, ms);
 
-at(300, () => input.write('\r'));   // open ApexClass, focus table
-at(450, () => input.write(' '));    // select row 0
-at(550, () => input.write('j'));    // down to row 1
-at(650, () => input.write(' '));    // select row 1  -> 2 selected
-at(800, () => input.write('\t'));   // tab -> Selected pane
-at(950, () => input.write('x'));    // remove the highlighted item -> 1 left
-at(1150, () => input.write('q'));   // quit -> confirm
-at(1300, () => input.write('y'));   // confirm
+at(300, () => input.write('\r')); // open ApexClass, focus table
+at(450, () => input.write(' ')); // select row 0
+at(550, () => input.write('j')); // down to row 1
+at(650, () => input.write(' ')); // select row 1  -> 2 selected
+at(800, () => input.write('\t')); // tab -> Selected pane
+at(950, () => input.write('x')); // remove the highlighted item -> 1 left
+at(1150, () => input.write('q')); // quit -> confirm
+at(1300, () => input.write('y')); // confirm
 
 const result = await p;
 clearTimeout(timer);
