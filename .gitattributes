@@ -1,0 +1,10 @@
+# Keep the repo canonical: LF in git for all text, so line endings don't churn
+# across Windows/macOS/Linux. Prettier is set to endOfLine:"auto" to accept
+# either in the working tree.
+* text=auto eol=lf
+
+# Binary assets — never normalize.
+*.woff2 binary
+*.png binary
+*.jpg binary
+*.zip binary

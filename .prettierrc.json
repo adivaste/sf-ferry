@@ -5,6 +5,6 @@
   "printWidth": 110,
   "tabWidth": 4,
   "arrowParens": "always",
-  "endOfLine": "lf",
+  "endOfLine": "auto",
   "overrides": [{ "files": "*.json", "options": { "tabWidth": 2 } }]
 }
