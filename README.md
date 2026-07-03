@@ -94,8 +94,9 @@ ferry run --source uat --target prod --import manifest/package.xml \
 ## Learn more
 
 - Full keybindings — press **`?`** inside the app.
-- What ferry stores and where — [BEHAVIORS.md](./BEHAVIORS.md).
-- A visual guide lives in [`docs/index.html`](./docs/index.html).
+- A visual guide — usage, how it works, and where state is stored — lives in
+  [`docs/index.html`](./docs/index.html).
+- Inspect what's cached with `ferry status`.
 
 ## License
 
