@@ -1,6 +1,6 @@
 {
   "name": "sf-ferry",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Ferry — a live, change-set-style Salesforce metadata migrator (org → org): browse a source org, select components, deploy/validate to a target with full test-level control.",
   "keywords": [
     "salesforce",
