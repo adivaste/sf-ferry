@@ -8,16 +8,7 @@ a target org — like a change set, without the clicking.
 [![node](https://img.shields.io/node/v/sf-ferry.svg)](https://nodejs.org)
 [![license](https://img.shields.io/npm/l/sf-ferry.svg)](./LICENSE)
 
-```
- ⚓ FERRY   source uat  →  target prod   tests RunLocalTests   ✓ 12 selected
-┌ Types (48) ─┐┌ Components  3/9 · fetched 2h ago ─┐┌ Selected ───────────┐
-│ ApexClass(9)✓││ [x] AccountService    A.Vaste     ││ ApexClass (9)        │
-│ ApexTrigger ││ [x] AccountService_Test A.Vaste◀  ││  • AccountService    │
-│ CustomField ││ [x] LeadController    J.Smith     ││  • LeadController     │
-│ Flow        ││ [ ] OrderTriggerHandler B.Lee     ││ ApexTrigger (2)      │
-└─────────────┘└──────────────────────────────────┘└──────────────────────┘
- ↑↓ move  space check  / filter  t target  l test-level  v validate  d deploy  ? help
-```
+![ferry — browse a source org, tick components, deploy to a target](https://raw.githubusercontent.com/adivaste/sf-ferry/main/assets/tui.png)
 
 ## Install
 
