@@ -10,13 +10,20 @@ const input = new PassThrough();
 input.setRawMode = () => {};
 input.isTTY = true;
 const output = new PassThrough();
-output.columns = 140; output.rows = 40; output.isTTY = true; output.resume();
+output.columns = 140;
+output.rows = 40;
+output.isTTY = true;
+output.resume();
 process.env.TERM = process.env.TERM || 'xterm';
 
 const store = createStore({ sourceOrg: 'DEMO', targetOrg: '' });
 setTypes(store, DEMO_TYPES);
 const loadComponents = async (type) => setComponents(store, type, DEMO_COMPONENTS[type] || []);
-const orgs = [{ label: 'A', value: 'a' }, { label: 'B', value: 'b' }, { label: 'C', value: 'c' }];
+const orgs = [
+    { label: 'A', value: 'a' },
+    { label: 'B', value: 'b' },
+    { label: 'C', value: 'c' },
+];
 
 const realIn = process.stdin;
 const realOut = process.stdout;
@@ -24,18 +31,21 @@ Object.defineProperty(process, 'stdin', { value: input, configurable: true });
 Object.defineProperty(process, 'stdout', { value: output, configurable: true });
 
 const DOWN = '\x1b[B';
-const timer = setTimeout(() => { console.log('WRAP FAIL: timed out'); process.exit(2); }, 9000);
+const timer = setTimeout(() => {
+    console.log('WRAP FAIL: timed out');
+    process.exit(2);
+}, 9000);
 const p = runTui({ store, loadComponents, orgs });
 const at = (ms, fn) => setTimeout(fn, ms);
 
-at(300, () => input.write('\r'));   // open a type -> focus table
-at(500, () => input.write('t'));    // open target picker (starts on A=0)
-at(620, () => input.write(DOWN));   // -> B
-at(700, () => input.write(DOWN));   // -> C
-at(780, () => input.write(DOWN));   // wrap -> A
-at(900, () => input.write('\r'));   // choose A
-at(1050, () => input.write('q'));   // quit -> confirm
-at(1200, () => input.write('y'));   // confirm
+at(300, () => input.write('\r')); // open a type -> focus table
+at(500, () => input.write('t')); // open target picker (starts on A=0)
+at(620, () => input.write(DOWN)); // -> B
+at(700, () => input.write(DOWN)); // -> C
+at(780, () => input.write(DOWN)); // wrap -> A
+at(900, () => input.write('\r')); // choose A
+at(1050, () => input.write('q')); // quit -> confirm
+at(1200, () => input.write('y')); // confirm
 
 const result = await p;
 clearTimeout(timer);

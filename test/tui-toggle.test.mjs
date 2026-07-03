@@ -9,7 +9,10 @@ const input = new PassThrough();
 input.setRawMode = () => {};
 input.isTTY = true;
 const output = new PassThrough();
-output.columns = 140; output.rows = 40; output.isTTY = true; output.resume();
+output.columns = 140;
+output.rows = 40;
+output.isTTY = true;
+output.resume();
 process.env.TERM = process.env.TERM || 'xterm';
 
 const store = createStore({ sourceOrg: 'DEMO', targetOrg: 'DEMO-prod' });
@@ -21,18 +24,21 @@ const realOut = process.stdout;
 Object.defineProperty(process, 'stdin', { value: input, configurable: true });
 Object.defineProperty(process, 'stdout', { value: output, configurable: true });
 
-const timer = setTimeout(() => { console.log('TOGGLE FAIL: timed out'); process.exit(2); }, 9000);
+const timer = setTimeout(() => {
+    console.log('TOGGLE FAIL: timed out');
+    process.exit(2);
+}, 9000);
 const p = runTui({ store, loadComponents, orgs: [] });
 const at = (ms, fn) => setTimeout(fn, ms);
 
-at(300, () => input.write('\r'));    // open a type, focus table
-at(450, () => input.write('\x02'));  // Ctrl+B  -> hide left
-at(550, () => input.write('\x02'));  // Ctrl+B  -> show left
+at(300, () => input.write('\r')); // open a type, focus table
+at(450, () => input.write('\x02')); // Ctrl+B  -> hide left
+at(550, () => input.write('\x02')); // Ctrl+B  -> show left
 at(650, () => input.write('\x1bb')); // Alt+B   -> hide right
 at(750, () => input.write('\x1bb')); // Alt+B   -> show right
-at(850, () => input.write('\x02'));  // hide left again (stay collapsed)
-at(1000, () => input.write('q'));    // quit -> confirm
-at(1150, () => input.write('y'));    // confirm
+at(850, () => input.write('\x02')); // hide left again (stay collapsed)
+at(1000, () => input.write('q')); // quit -> confirm
+at(1150, () => input.write('y')); // confirm
 
 const result = await p;
 clearTimeout(timer);

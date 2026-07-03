@@ -1,24 +1,64 @@
 import assert from 'node:assert';
 import {
-  createStore, setTypes, setComponents, setActiveType, setFilter, setSort,
-  visibleRows, toggleSelect, selectAllVisible, clearVisible, isSelected,
-  selectionCount, selectionGrouped, manifestEntries, selectedCountForType,
+    createStore,
+    setTypes,
+    setComponents,
+    setActiveType,
+    setFilter,
+    setSort,
+    visibleRows,
+    toggleSelect,
+    selectAllVisible,
+    clearVisible,
+    isSelected,
+    selectionCount,
+    selectionGrouped,
+    manifestEntries,
+    selectedCountForType,
 } from '../src/store.js';
 
 let passed = 0;
 const check = (label, cond) => {
-  assert.ok(cond, label);
-  console.log('PASS', label);
-  passed += 1;
+    assert.ok(cond, label);
+    console.log('PASS', label);
+    passed += 1;
 };
 
 const apex = [
-  { type: 'ApexClass', fullName: 'AccountCtrl', lastModifiedByName: 'A. Vaste', lastModifiedDate: '2026-06-20T10:00:00.000+0000', createdByName: 'A. Vaste', createdDate: '2025-01-02T10:00:00.000+0000' },
-  { type: 'ApexClass', fullName: 'LeadService', lastModifiedByName: 'J. Smith', lastModifiedDate: '2026-06-23T09:00:00.000+0000', createdByName: 'A. Vaste', createdDate: '2024-11-15T10:00:00.000+0000' },
-  { type: 'ApexClass', fullName: 'zHelper', lastModifiedByName: 'B. Lee', lastModifiedDate: '2026-01-05T09:00:00.000+0000', createdByName: 'B. Lee', createdDate: '2026-05-30T10:00:00.000+0000' },
+    {
+        type: 'ApexClass',
+        fullName: 'AccountCtrl',
+        lastModifiedByName: 'A. Vaste',
+        lastModifiedDate: '2026-06-20T10:00:00.000+0000',
+        createdByName: 'A. Vaste',
+        createdDate: '2025-01-02T10:00:00.000+0000',
+    },
+    {
+        type: 'ApexClass',
+        fullName: 'LeadService',
+        lastModifiedByName: 'J. Smith',
+        lastModifiedDate: '2026-06-23T09:00:00.000+0000',
+        createdByName: 'A. Vaste',
+        createdDate: '2024-11-15T10:00:00.000+0000',
+    },
+    {
+        type: 'ApexClass',
+        fullName: 'zHelper',
+        lastModifiedByName: 'B. Lee',
+        lastModifiedDate: '2026-01-05T09:00:00.000+0000',
+        createdByName: 'B. Lee',
+        createdDate: '2026-05-30T10:00:00.000+0000',
+    },
 ];
 const lwc = [
-  { type: 'LightningComponentBundle', fullName: 'myComp', lastModifiedByName: 'A. Vaste', lastModifiedDate: '2026-06-01T10:00:00.000+0000', createdByName: 'A. Vaste', createdDate: '2026-06-01T10:00:00.000+0000' },
+    {
+        type: 'LightningComponentBundle',
+        fullName: 'myComp',
+        lastModifiedByName: 'A. Vaste',
+        lastModifiedDate: '2026-06-01T10:00:00.000+0000',
+        createdByName: 'A. Vaste',
+        createdDate: '2026-06-01T10:00:00.000+0000',
+    },
 ];
 
 const store = createStore({ sourceOrg: 'uat', targetOrg: 'prod' });
@@ -29,7 +69,12 @@ setComponents(store, 'ApexClass', apex);
 setComponents(store, 'LightningComponentBundle', lwc);
 
 // default sort: name ascending
-check('default name asc', visibleRows(store).map((r) => r.fullName).join(',') === 'AccountCtrl,LeadService,zHelper');
+check(
+    'default name asc',
+    visibleRows(store)
+        .map((r) => r.fullName)
+        .join(',') === 'AccountCtrl,LeadService,zHelper',
+);
 
 // sort by last modified date asc then desc
 setSort(store, 'lastModifiedDate');
@@ -42,9 +87,13 @@ setSort(store, 'lastModifiedByName');
 check('owner asc', visibleRows(store)[0].lastModifiedByName === 'A. Vaste');
 
 // filter (token search across name + owner)
-setSort(store, 'fullName'); setSort(store, 'fullName'); // back to asc-ish; ensure deterministic
+setSort(store, 'fullName');
+setSort(store, 'fullName'); // back to asc-ish; ensure deterministic
 setFilter(store, 'smith');
-check('filter by owner name', visibleRows(store).length === 1 && visibleRows(store)[0].fullName === 'LeadService');
+check(
+    'filter by owner name',
+    visibleRows(store).length === 1 && visibleRows(store)[0].fullName === 'LeadService',
+);
 setFilter(store, '');
 
 // selection
@@ -67,10 +116,19 @@ toggleSelect(store, 'LightningComponentBundle', 'myComp');
 
 // grouped preview + manifest entries
 const grouped = selectionGrouped(store);
-check('grouped by type sorted', grouped[0].type === 'ApexClass' && grouped[1].type === 'LightningComponentBundle');
+check(
+    'grouped by type sorted',
+    grouped[0].type === 'ApexClass' && grouped[1].type === 'LightningComponentBundle',
+);
 const entries = manifestEntries(store);
-check('manifest entries shape', entries.every((e) => e.type && e.fullName));
-check('manifest includes lwc', entries.some((e) => e.type === 'LightningComponentBundle' && e.fullName === 'myComp'));
+check(
+    'manifest entries shape',
+    entries.every((e) => e.type && e.fullName),
+);
+check(
+    'manifest includes lwc',
+    entries.some((e) => e.type === 'LightningComponentBundle' && e.fullName === 'myComp'),
+);
 
 // setActiveType clears the filter by default, but keepFilter preserves it (sticky)
 setFilter(store, 'acct');

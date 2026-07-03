@@ -9,7 +9,10 @@ const input = new PassThrough();
 input.setRawMode = () => {};
 input.isTTY = true;
 const output = new PassThrough();
-output.columns = 140; output.rows = 40; output.isTTY = true; output.resume();
+output.columns = 140;
+output.rows = 40;
+output.isTTY = true;
+output.resume();
 process.env.TERM = process.env.TERM || 'xterm';
 
 const store = createStore({ sourceOrg: 'DEMO', targetOrg: 'DEMO-prod' });
@@ -23,17 +26,25 @@ Object.defineProperty(process, 'stdout', { value: output, configurable: true });
 
 let resolved = false;
 let resolvedAfterCancel = null;
-const timer = setTimeout(() => { console.log('CONFIRM FAIL: timed out'); process.exit(2); }, 9000);
-const p = runTui({ store, loadComponents, orgs: [] }).then((r) => { resolved = true; return r; });
+const timer = setTimeout(() => {
+    console.log('CONFIRM FAIL: timed out');
+    process.exit(2);
+}, 9000);
+const p = runTui({ store, loadComponents, orgs: [] }).then((r) => {
+    resolved = true;
+    return r;
+});
 const at = (ms, fn) => setTimeout(fn, ms);
 
-at(300, () => input.write('\r'));  // open ApexClass, focus table
-at(450, () => input.write(' '));   // select a component
-at(600, () => input.write('d'));   // deploy -> confirm dialog
-at(750, () => input.write('n'));   // cancel
-at(900, () => { resolvedAfterCancel = resolved; });
-at(1050, () => input.write('d'));  // deploy -> confirm dialog again
-at(1200, () => input.write('y'));  // confirm -> resolves
+at(300, () => input.write('\r')); // open ApexClass, focus table
+at(450, () => input.write(' ')); // select a component
+at(600, () => input.write('d')); // deploy -> confirm dialog
+at(750, () => input.write('n')); // cancel
+at(900, () => {
+    resolvedAfterCancel = resolved;
+});
+at(1050, () => input.write('d')); // deploy -> confirm dialog again
+at(1200, () => input.write('y')); // confirm -> resolves
 
 const result = await p;
 clearTimeout(timer);
