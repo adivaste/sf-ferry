@@ -1,5 +1,5 @@
 {
-  "name": "ferry-sf",
+  "name": "sf-ferry",
   "version": "1.0.0",
   "description": "Ferry — a live, change-set-style Salesforce metadata migrator (org → org): browse a source org, select components, deploy/validate to a target with full test-level control.",
   "keywords": [
@@ -15,13 +15,13 @@
     "cli",
     "tui"
   ],
-  "homepage": "https://github.com/adivaste/ferry-sf#readme",
+  "homepage": "https://github.com/adivaste/sf-ferry#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/adivaste/ferry-sf.git"
+    "url": "git+https://github.com/adivaste/sf-ferry.git"
   },
   "bugs": {
-    "url": "https://github.com/adivaste/ferry-sf/issues"
+    "url": "https://github.com/adivaste/sf-ferry/issues"
   },
   "author": "adivaste",
   "license": "MIT",
