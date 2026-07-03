@@ -1,18 +1,22 @@
 #!/usr/bin/env node
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { Command } from 'commander';
 import { resolveProject } from '../src/config.js';
 import { loadConfig } from '../src/userconfig.js';
 import { PACKAGE_FILE, DEFAULT_WAIT_MINUTES } from '../src/constants.js';
 
 // Heavy modules (SDR, @salesforce/core, blessed) are imported lazily inside the
-// actions that need them, so `--help` / `orgs` start almost instantly.
+// actions that need them, so `--help` / `--version` / `orgs` start almost instantly.
+
+const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 const program = new Command();
 
 program
     .name('ferry')
     .description('Live, change-set-style Salesforce metadata migrator (org → org).')
+    .version(pkg.version, '-v, --version', 'print the version and exit')
     .option('-m, --manifest-dir <dir>', 'where package.xml is written', 'manifest')
     .option('-a, --api-version <ver>', 'API version (default: from sfdx-project.json or 62.0)');
 

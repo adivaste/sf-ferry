@@ -13,8 +13,16 @@ const start = Date.now();
 const res = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
 const elapsed = Date.now() - start;
 
-const ok = res.status === 0 && elapsed < THRESHOLD_MS && /Usage: ferry/.test(res.stdout);
+const helpOk = res.status === 0 && elapsed < THRESHOLD_MS && /Usage: ferry/.test(res.stdout);
 console.log(`--help startup: ${elapsed} ms (threshold ${THRESHOLD_MS} ms)`);
+
+// --version must print the package version and exit 0 (regression guard: the
+// CLI previously shipped without a version flag → "unknown option '--version'").
+const ver = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8' });
+const versionOk = ver.status === 0 && /^\d+\.\d+\.\d+/.test((ver.stdout || '').trim());
+console.log(`--version: "${(ver.stdout || ver.stderr || '').trim()}" (exit ${ver.status})`);
+
+const ok = helpOk && versionOk;
 console.log(ok ? 'STARTUP PASS' : 'STARTUP FAIL');
-if (!ok && res.status !== 0) console.log(res.stderr);
+if (!ok) console.log(res.stderr || ver.stderr);
 process.exit(ok ? 0 : 1);
