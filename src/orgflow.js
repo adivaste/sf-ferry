@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
-import { PACKAGE_FILE, TEST_LEVELS } from './constants.js';
+import { PACKAGE_FILE, TEST_LEVELS, DEFAULT_WAIT_MINUTES } from './constants.js';
 import { writeManifests } from './manifest.js';
 
 export { TEST_LEVELS };
@@ -39,7 +39,7 @@ function sf(args) {
 }
 
 /** Pure (testable) arg builders. */
-export function buildRetrieveArgs({ manifestPath, sourceOrg, metadataDir, wait = 60 }) {
+export function buildRetrieveArgs({ manifestPath, sourceOrg, metadataDir, wait = DEFAULT_WAIT_MINUTES }) {
   return [
     'project', 'retrieve', 'start',
     '--manifest', manifestPath,
@@ -49,7 +49,7 @@ export function buildRetrieveArgs({ manifestPath, sourceOrg, metadataDir, wait =
   ];
 }
 
-export function buildOrgDeployArgs({ zipPath, targetOrg, testLevel, tests = [], validate = false, wait = 60 }) {
+export function buildOrgDeployArgs({ zipPath, targetOrg, testLevel, tests = [], validate = false, wait = DEFAULT_WAIT_MINUTES }) {
   // `deploy validate` rejects NoTestRun (a validation must run tests). To still
   // offer a no-test check, fall back to a check-only `deploy start --dry-run`
   // (the approach the sf CLI itself recommends for this).
@@ -71,7 +71,7 @@ export function buildOrgDeployArgs({ zipPath, targetOrg, testLevel, tests = [], 
  * Write package.xml from the selection, then retrieve those components from the
  * SOURCE org as a metadata-format zip. Returns { code, zip, error }.
  */
-export async function retrieveFromSource({ manifestDir, retrieveDir, sourceOrg, entries, apiVersion, wait = 60, refetch = false }) {
+export async function retrieveFromSource({ manifestDir, retrieveDir, sourceOrg, entries, apiVersion, wait = DEFAULT_WAIT_MINUTES, refetch = false }) {
   await writeManifests(manifestDir, { apiVersion, changes: entries, destructive: [] });
   const zip = path.join(retrieveDir, RETRIEVE_ZIP);
   const sigPath = path.join(retrieveDir, SIG_FILE);
@@ -107,7 +107,7 @@ export async function retrieveFromSource({ manifestDir, retrieveDir, sourceOrg, 
 }
 
 /** Deploy (or validate) the retrieved metadata zip to the TARGET org. */
-export async function deployToTarget({ retrieveDir, targetOrg, testLevel, tests = [], validate = false, wait = 60 }) {
+export async function deployToTarget({ retrieveDir, targetOrg, testLevel, tests = [], validate = false, wait = DEFAULT_WAIT_MINUTES }) {
   const args = buildOrgDeployArgs({
     zipPath: path.join(retrieveDir, RETRIEVE_ZIP),
     targetOrg,

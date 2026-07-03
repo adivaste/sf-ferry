@@ -78,6 +78,21 @@ const SPIN_FRAMES = ['|', '/', '-', '\\']; // ASCII — renders in every termina
 // pane overrides this with cyan.)
 const DIM = 235;
 
+// ---- tunables --------------------------------------------------------------
+const DEDUPE_WINDOW_MS = 12; // drop a duplicate keypress within this window (Windows stdin quirk)
+const SPIN_INTERVAL_MS = 90; // spinner frame cadence
+const FILTER_DEBOUNCE_MS = 110; // settle time after the last keystroke before re-filtering
+const RESIZE_DEBOUNCE_MS = 50; // coalesce a burst of resize events into one repaint
+
+// Pane widths as a percentage of screen width; the centre pane takes the rest.
+const LEFT_PANE_PCT = 25; // Types pane
+const RIGHT_PANE_PCT = 30; // Selected pane
+const CENTER_PANE_PCT = 100 - LEFT_PANE_PCT - RIGHT_PANE_PCT;
+
+// Component-table column widths, in characters.
+const COL_MODIFIED_BY_W = 16;
+const COL_DATE_W = 10;
+
 const HELP_TEXT = [
   '{bold}{cyan-fg}Navigation{/cyan-fg}{/bold}',
   '  ↑ ↓  /  j k       move',
@@ -132,9 +147,7 @@ export function runTui({
   onSaveSession = null, initialTestLevel = null, apiVersion = null,
 }) {
   // loadComponents/orgs may be (re)assigned by `prepare` after the splash.
-  // eslint-disable-next-line no-param-reassign
   let _load = loadComponents;
-  // eslint-disable-next-line no-param-reassign
   let _orgs = orgs;
   return new Promise((resolve) => {
     // On a real interactive terminal we assume 256-colour + unicode so the dark
@@ -163,7 +176,7 @@ export function runTui({
         const key = args[1];
         const sig = `${key ? key.full || key.name : ''}|${args[0] || ''}`;
         const now = Date.now();
-        if (sig === lastSig && now - lastAt < 12) { lastAt = now; return false; }
+        if (sig === lastSig && now - lastAt < DEDUPE_WINDOW_MS) { lastAt = now; return false; }
         lastSig = sig;
         lastAt = now;
       }
@@ -205,24 +218,24 @@ export function runTui({
       style: { border: { fg: DIM } },
     });
     const typesList = blessed.list({
-      parent: screen, label: ' Types ', top: 3, left: 0, width: '25%', bottom: 3,
+      parent: screen, label: ' Types ', top: 3, left: 0, width: `${LEFT_PANE_PCT}%`, bottom: 3,
       border: 'line', keys: true, mouse: true, tags: true,
       style: { selected: { bg: 'cyan', fg: 'black' }, border: { fg: 'cyan' }, label: { fg: 'cyan' } },
       scrollbar: { ch: ' ', style: { bg: 'cyan' } },
     });
     const filterBox = blessed.textbox({
-      parent: screen, label: ' Filter (/) ', top: 3, left: '25%', width: '45%', height: 3,
+      parent: screen, label: ' Filter (/) ', top: 3, left: `${LEFT_PANE_PCT}%`, width: `${CENTER_PANE_PCT}%`, height: 3,
       border: 'line', inputOnFocus: true, style: { border: { fg: DIM }, label: { fg: 'cyan' } },
     });
     const table = blessed.box({
-      parent: screen, label: ' Components ', top: 6, left: '25%', width: '45%', bottom: 3,
+      parent: screen, label: ' Components ', top: 6, left: `${LEFT_PANE_PCT}%`, width: `${CENTER_PANE_PCT}%`, bottom: 3,
       border: 'line', tags: true, keys: true, mouse: true, scrollable: false,
       style: { border: { fg: DIM }, label: { fg: 'cyan' } },
     });
     const basket = blessed.box({
       // keys:false — we drive the cursor + removal ourselves so the built-in
       // scroll keys don't fight our navigation (see basketMove/basketRemove).
-      parent: screen, label: ' Selected ', top: 3, left: '70%', right: 0, bottom: 3,
+      parent: screen, label: ' Selected ', top: 3, left: `${100 - RIGHT_PANE_PCT}%`, right: 0, bottom: 3,
       border: 'line', tags: true, scrollable: true, alwaysScroll: true, mouse: true, keys: false,
       scrollbar: { ch: ' ', style: { bg: 'green' } },
       style: { border: { fg: DIM }, label: { fg: 'green' } },
@@ -255,7 +268,7 @@ export function runTui({
           footer.setContent(` {cyan-fg}${SPIN_FRAMES[spinFrame]}{/cyan-fg} ${msg}`);
           screen.render();
         } catch { /* screen torn down */ }
-      }, 90);
+      }, SPIN_INTERVAL_MS);
       if (spinTimer.unref) spinTimer.unref(); // never keep the process alive
     }
     function stopSpin() {
@@ -264,8 +277,8 @@ export function runTui({
 
     // Collapse/expand the side panels so the center table can use the space.
     function relayout() {
-      const lw = leftVisible ? 25 : 0;
-      const rw = rightVisible ? 30 : 0;
+      const lw = leftVisible ? LEFT_PANE_PCT : 0;
+      const rw = rightVisible ? RIGHT_PANE_PCT : 0;
       const cw = 100 - lw - rw;
       if (leftVisible) typesList.show(); else typesList.hide();
       if (rightVisible) basket.show(); else basket.hide();
@@ -285,8 +298,8 @@ export function runTui({
     }
     function colWidths() {
       const inner = Math.max(24, (typeof table.width === 'number' ? table.width : Math.floor(screen.width * 0.45)) - 3);
-      const byW = 16;
-      const dateW = 10;
+      const byW = COL_MODIFIED_BY_W;
+      const dateW = COL_DATE_W;
       let nameW = inner - 3 /*mark*/ - byW - dateW - dateW - 4 /*gaps*/;
       if (nameW < 8) nameW = 8;
       return { inner, nameW, byW, dateW };
@@ -676,7 +689,7 @@ export function runTui({
         setFilter(store, filterBox.value || '');
         recomputeView({ resetCursor: true });
         renderTable(); paint();
-      }, 110);
+      }, FILTER_DEBOUNCE_MS);
     });
     function endFilter(focusTable = true) {
       if (filterTimer) { clearTimeout(filterTimer); filterTimer = null; }
@@ -1013,7 +1026,7 @@ export function runTui({
     let resizeTimer = null;
     screen.on('resize', () => {
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => { resizeTimer = null; renderTable(); paint(); }, 50);
+      resizeTimer = setTimeout(() => { resizeTimer = null; renderTable(); paint(); }, RESIZE_DEBOUNCE_MS);
       if (resizeTimer.unref) resizeTimer.unref();
     });
 
@@ -1052,7 +1065,7 @@ export function runTui({
         splash.setContent(lines.join('\n'));
         screen.render();
       };
-      splashTimer = setInterval(() => { sf = (sf + 1) % SPIN_FRAMES.length; drawSplash(); }, 90);
+      splashTimer = setInterval(() => { sf = (sf + 1) % SPIN_FRAMES.length; drawSplash(); }, SPIN_INTERVAL_MS);
       if (splashTimer.unref) splashTimer.unref();
       const step = {
         begin(msg) { steps.push({ text: msg, state: 'doing' }); drawSplash(); },

@@ -6,7 +6,7 @@ import { writeJsonAtomic } from './fsjson.js';
 // A capped, deduped HISTORY of selections per org (newest first). We store but
 // never auto-restore — the UI offers a picker (R) to load one, and save (S) /
 // deploys append a checkpoint.
-const MAX = 20;
+const MAX_SESSIONS = 20; // keep the most recent N selections per org
 
 const sig = (entries) => (entries || []).map((e) => `${e.type}:${e.fullName}`).sort().join('|');
 
@@ -63,7 +63,7 @@ export function addSession(orgKey, { entries, targetOrg, testLevel, label } = {}
     testLevel: testLevel || '',
     savedAt: new Date().toISOString(),
   });
-  const trimmed = list.slice(0, MAX);
+  const trimmed = list.slice(0, MAX_SESSIONS);
   ensureDir(path.dirname(sessionsFile(orgKey)));
   writeJsonAtomic(sessionsFile(orgKey), trimmed, { pretty: true });
   return trimmed;
