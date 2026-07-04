@@ -131,6 +131,7 @@ const HELP_TEXT = [
     '  s                 load a saved selection (history)',
     '  S                 save the selection with a name',
     '  p                 preview the generated package.xml',
+    '  D                 check dependencies against the target org',
     '  r                 refresh current type from the org',
     '  b                 write package.xml only',
     '  v / d             validate / deploy (org → org)',
@@ -154,6 +155,7 @@ export function runTui({
     prepare = null,
     onListSessions = null,
     onSaveSession = null,
+    checkDependencies = null,
     initialTestLevel = null,
     apiVersion = null,
 }) {
@@ -213,6 +215,7 @@ export function runTui({
         let rightVisible = true; // Selected pane (Alt+B)
         let basketCursor = 0; // highlighted item in the Selected pane
         let visualAnchor = null; // start index of a visual range-select (null = off)
+        let depMissing = 0; // deps missing in the target from the last D check (0 = none/stale)
         let spinTimer = null;
         let spinFrame = 0;
         let splashTimer = null;
@@ -397,7 +400,8 @@ export function runTui({
                     div +
                     `{white-fg}tests{/white-fg} {magenta-fg}{bold}${testLevel}{/bold}{/magenta-fg}` +
                     div +
-                    `{green-fg}{bold}✓ ${selectionCount(store)}{/bold} selected{/green-fg}`,
+                    `{green-fg}{bold}✓ ${selectionCount(store)}{/bold} selected{/green-fg}` +
+                    (depMissing > 0 ? `${div}{yellow-fg}{bold}⚠ ${depMissing} deps{/bold}{/yellow-fg}` : ''),
             );
         }
         // Cache the filtered type list by its filter key so re-deriving it (e.g. in
@@ -574,7 +578,7 @@ export function runTui({
             }
             footer.setContent(
                 `${line1}\n` +
-                    ' {green-fg}b{/green-fg} build  {green-fg}v{/green-fg} validate  {green-fg}d{/green-fg} deploy  {cyan-fg}p{/cyan-fg} preview  {cyan-fg}s{/cyan-fg}/{cyan-fg}S{/cyan-fg} load/save  {cyan-fg}?{/cyan-fg} help  {red-fg}q{/red-fg} quit',
+                    ' {green-fg}b{/green-fg} build  {green-fg}v{/green-fg} validate  {green-fg}d{/green-fg} deploy  {cyan-fg}D{/cyan-fg} deps  {cyan-fg}p{/cyan-fg} preview  {cyan-fg}s{/cyan-fg}/{cyan-fg}S{/cyan-fg} load/save  {cyan-fg}?{/cyan-fg} help  {red-fg}q{/red-fg} quit',
             );
         }
         function renderFilterLabel() {
@@ -722,6 +726,7 @@ export function runTui({
         // type's badge is touched (updateTypeItem, not renderTypes), and an optional
         // status message is folded into the same paint so we never render twice.
         function refreshMarks(changedType = store.activeType, statusMsg = null) {
+            depMissing = 0; // selection changed → the last dependency check is now stale
             renderTable();
             renderBasket();
             renderHeader();
@@ -1320,7 +1325,7 @@ export function runTui({
                 top: 'center',
                 left: 'center',
                 width: '60%',
-                height: 6,
+                height: 5 + message.split('\n').length, // grow for multi-line messages (e.g. the dep warning)
                 border: 'line',
                 tags: true,
                 label: ' Confirm ',
@@ -1353,16 +1358,164 @@ export function runTui({
             }
             confirmAction(message, () => finish(action));
         }
+        // ---- dependency check (D) --------------------------------------------
+        const statusGlyph = (s) =>
+            s === 'missing'
+                ? '{red-fg}●{/red-fg}'
+                : s === 'older'
+                  ? '{yellow-fg}▲{/yellow-fg}'
+                  : '{green-fg}✓{/green-fg}';
+
+        // Review panel: level-1 dependencies of the selection, classified against
+        // the target. Missing rows are pre-checked; enter merges the checked ones
+        // into the selection. Suggest-not-bundle — the user decides.
+        function openDepsPanel(rows, caveat) {
+            modal = true;
+            const keyOf = (r) => `${r.type}:${r.fullName}`;
+            const toAdd = new Set(rows.filter((r) => r.status === 'missing').map(keyOf));
+            let cur = 0;
+            const box = blessed.box({
+                parent: screen,
+                top: 'center',
+                left: 'center',
+                width: '84%',
+                height: '82%',
+                border: 'line',
+                tags: true,
+                keys: false,
+                mouse: true,
+                scrollable: true,
+                alwaysScroll: true,
+                label: ` Dependencies · checked against ${store.targetOrg} `,
+                padding: { left: 1, right: 1 },
+                style: { border: { fg: 'cyan' }, label: { fg: 'cyan' } },
+                scrollbar: { ch: ' ', style: { bg: 'cyan' } },
+            });
+            function render() {
+                const lines = [];
+                if (!rows.length) {
+                    lines.push(
+                        '{green-fg}✓ Nothing missing — all level-1 dependencies exist in the target.{/green-fg}',
+                    );
+                } else {
+                    lines.push(
+                        '{gray-fg}  add   status     type / name                        why / in target{/gray-fg}',
+                    );
+                    rows.forEach((r, i) => {
+                        const mark = toAdd.has(keyOf(r)) ? '[x]' : '[ ]';
+                        const meta = `${r.why}${r.targetDate ? `  ·  in target ${shortDate(r.targetDate)}` : ''}`;
+                        const body = `${mark}  ${statusGlyph(r.status)} ${pad(r.status, 8)} ${pad(trunc(r.type, 16), 16)} ${trunc(r.fullName, 30)}  {gray-fg}${meta}{/gray-fg}`;
+                        lines.push(i === cur ? `{cyan-fg}{bold}❯ ${body}{/bold}{/cyan-fg}` : `  ${body}`);
+                    });
+                }
+                if (caveat) lines.push('', `{gray-fg}${caveat}{/gray-fg}`);
+                lines.push(
+                    '',
+                    ' {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}space{/cyan-fg} add/skip  {cyan-fg}a{/cyan-fg} add all missing  {green-fg}enter{/green-fg} apply  {red-fg}esc{/red-fg} cancel',
+                );
+                box.setContent(lines.join('\n'));
+                paint();
+            }
+            const move = (d) => {
+                if (!rows.length) return;
+                cur = (((cur + d) % rows.length) + rows.length) % rows.length;
+                render();
+            };
+            const apply = () => {
+                let added = 0;
+                for (const r of rows) {
+                    if (toAdd.has(keyOf(r)) && !isSelected(store, r.type, r.fullName)) {
+                        toggleSelect(store, r.type, r.fullName);
+                        added += 1;
+                    }
+                }
+                box.destroy();
+                modal = false;
+                recomputeView();
+                refreshMarks(
+                    store.activeType,
+                    added ? `Added ${added} dependenc${added === 1 ? 'y' : 'ies'}.` : 'No changes.',
+                );
+                focusPane(table);
+            };
+            const cancel = () => {
+                box.destroy();
+                modal = false;
+                focusPane(focusedPane || table);
+            };
+            box.key(['down', 'j'], () => move(1));
+            box.key(['up', 'k'], () => move(-1));
+            box.key('space', () => {
+                const r = rows[cur];
+                if (!r) return;
+                const k = keyOf(r);
+                if (toAdd.has(k)) toAdd.delete(k);
+                else toAdd.add(k);
+                render();
+            });
+            box.key('a', () => {
+                rows.filter((r) => r.status === 'missing').forEach((r) => toAdd.add(keyOf(r)));
+                render();
+            });
+            box.key(['enter', 'return'], apply);
+            box.key(['escape', 'q'], cancel);
+            box.focus();
+            render();
+        }
+
+        screen.key('S-d', async () => {
+            if (filtering || modal || busy || typing()) return;
+            if (!checkDependencies) {
+                status('Dependency check is not available here.');
+                return;
+            }
+            if (selectionCount(store) === 0) {
+                status('Select components first, then press D to check their dependencies.');
+                return;
+            }
+            if (!store.targetOrg) {
+                status('Pick a target org (t) first — dependencies are checked against it.');
+                return;
+            }
+            busy = true;
+            startSpin(`Checking dependencies against ${store.targetOrg} …`);
+            let res;
+            try {
+                res = await checkDependencies(manifestEntries(store));
+            } catch (e) {
+                stopSpin();
+                busy = false;
+                status(`Dependency check failed: ${e.message}`);
+                return;
+            }
+            stopSpin();
+            busy = false;
+            const rows = (res && res.rows) || [];
+            depMissing = rows.filter((r) => r.status === 'missing').length;
+            renderHeader();
+            openDepsPanel(rows, res && res.caveat);
+        });
+
+        // A prior D check (for the current, unchanged selection) surfaces a soft
+        // warning in the deploy/validate confirm — informed, never blocking.
+        const depWarn = () =>
+            depMissing > 0
+                ? `\n{yellow-fg}⚠ ${depMissing} referenced component(s) missing in ${store.targetOrg} — press D to review{/yellow-fg}`
+                : '';
+
         const count = () => selectionCount(store);
         screen.key('b', () => confirmThen(`Write package.xml with ${count()} component(s)?`, 'build'));
         screen.key('v', () =>
             confirmThen(
-                `Validate ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?`,
+                `Validate ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?${depWarn()}`,
                 'validate',
             ),
         );
         screen.key('d', () =>
-            confirmThen(`Deploy ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?`, 'deploy'),
+            confirmThen(
+                `Deploy ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?${depWarn()}`,
+                'deploy',
+            ),
         );
         screen.key('q', () => {
             if (filtering || modal || typing()) return;

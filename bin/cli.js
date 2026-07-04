@@ -66,6 +66,8 @@ program
         const orgKey = () => store.sourceUsername || store.sourceOrg;
         let prepare;
         let seedNote = null; // splash line describing an imported selection
+        let sourceConn = null; // source connection, captured during the splash (for D)
+        let checkDependencies = null; // set below per demo / real mode
 
         if (cmdOpts.demo) {
             store.sourceOrg = 'DEMO';
@@ -86,6 +88,26 @@ program
                     orgs: [],
                 };
             };
+            // Sample data so D demonstrates the panel without an org connection.
+            checkDependencies = async () => ({
+                rows: [
+                    {
+                        type: 'ApexClass',
+                        fullName: 'AccountController_Test',
+                        why: 'test of AccountController',
+                        status: 'missing',
+                        targetDate: '',
+                    },
+                    {
+                        type: 'CustomObject',
+                        fullName: 'Invoice__c',
+                        why: 'referenced',
+                        status: 'present',
+                        targetDate: '2026-05-30T10:00:00.000+0000',
+                    },
+                ],
+                caveat: '[demo] sample dependencies — no org connection.',
+            });
         } else {
             // Source org is chosen BEFORE blessed (it needs an inquirer prompt when
             // --source isn't given); the slow connect+describe happens under the splash.
@@ -126,6 +148,7 @@ program
                 step.done('Loaded libraries');
                 step.begin(`Connecting to ${source} …`);
                 const conn = await connect(source);
+                sourceConn = conn; // captured for the dependency check (D)
                 const username = conn.getUsername() || source;
                 store.sourceUsername = username;
                 step.done(`Connected to ${username}`);
@@ -160,6 +183,11 @@ program
                     store.targetOrg = prefs.lastTarget;
                 }
                 return { types, loadComponents, orgs };
+            };
+            // D → level-1 dependency check against the chosen target org.
+            checkDependencies = async (entries) => {
+                const { makeDependencyChecker } = await import('../src/depcheck.js');
+                return makeDependencyChecker({ getSourceConn: () => sourceConn, apiVersion, store })(entries);
             };
         }
 
@@ -199,6 +227,7 @@ program
             initialTestLevel: defaultTestLevel,
             onListSessions: () => listSessions(orgKey()),
             onSaveSession: (payload) => addSession(orgKey(), payload),
+            checkDependencies,
         });
 
         // Checkpoint the selection to history on a real action — or on an explicit
