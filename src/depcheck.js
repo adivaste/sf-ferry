@@ -10,6 +10,11 @@ import { suggestTestClasses, buildTargetIndex, resolveDependencies } from './dep
 
 const MAX_DEP_IDS = 200; // cap the IN(...) list so the Tooling query stays well-formed
 
+// Dependency types checked via describe (authoritative for standard + custom)
+// rather than listMetadata, which omits standard objects and many standard fields.
+const OBJECT_TYPES = new Set(['CustomObject', 'StandardEntity']);
+const FIELD_TYPES = new Set(['CustomField']);
+
 function idsForEntries(entries, componentsByType) {
     const out = [];
     for (const e of entries) {
@@ -76,7 +81,14 @@ export function makeDependencyChecker({ getSourceConn, apiVersion, store }) {
             for (const r of rows || []) sourceDates.set(`${type}:${r.fullName}`, r.lastModifiedDate || '');
         }
 
-        // 3. Classify against the target org.
+        // 3. Classify against the target org. Existence is only reported "missing"
+        //    when we can CONFIRM it's absent — otherwise we assume present, so we
+        //    never falsely alarm on something the check just can't see.
+        //
+        //    Objects/fields are checked via DESCRIBE (authoritative for standard
+        //    AND custom — listMetadata omits standard objects like User and many
+        //    standard fields). Everything else uses listMetadata, which is correct
+        //    for ApexClass, Flow, etc.
         const types = [...new Set(candidates.map((c) => c.type))];
         const targetByType = {};
         let caveat =
@@ -84,19 +96,72 @@ export function makeDependencyChecker({ getSourceConn, apiVersion, store }) {
         try {
             const tconn = await connect(store.targetOrg);
             const targetKey = `target-${tconn.getUsername?.() || store.targetOrg}`;
-            for (const type of types) {
+
+            // Object existence (standard + custom) from a single global describe.
+            let objectSet = null; // Set of lowercased sObject API names; null = describe failed
+            if (candidates.some((c) => OBJECT_TYPES.has(c.type) || FIELD_TYPES.has(c.type))) {
                 try {
-                    // refresh:true — existence MUST reflect the target's current
-                    // state. A prior deploy in this session changed the target, so a
-                    // stale cache would report already-migrated components as "new".
-                    ({ rows: targetByType[type] } = await listComponents(tconn, type, {
-                        apiVersion,
-                        orgKey: targetKey,
-                        refresh: true,
-                    }));
+                    const g = await tconn.describeGlobal();
+                    objectSet = new Set((g?.sobjects || []).map((s) => String(s.name).toLowerCase()));
                 } catch {
-                    targetByType[type] = [];
+                    objectSet = null;
                 }
+            }
+            // Field existence per object, described lazily. null = describe failed.
+            const fieldCache = new Map();
+            const fieldsOf = async (objName) => {
+                const kl = objName.toLowerCase();
+                if (fieldCache.has(kl)) return fieldCache.get(kl);
+                let set = null;
+                try {
+                    const d = await tconn.describe(objName);
+                    set = new Set((d?.fields || []).map((f) => String(f.name).toLowerCase()));
+                } catch {
+                    set = null;
+                }
+                fieldCache.set(kl, set);
+                return set;
+            };
+            // A row is added to targetByType only when the component EXISTS (or when
+            // we can't tell — see present() ), so resolveDependencies marks the rest missing.
+            const present = (fullName) => ({ fullName, lastModifiedDate: '' });
+
+            for (const type of types) {
+                const cands = candidates.filter((c) => c.type === type);
+                const rowsForType = [];
+                if (OBJECT_TYPES.has(type)) {
+                    for (const c of cands) {
+                        // Can't describe → assume present (don't falsely alarm).
+                        if (objectSet === null || objectSet.has(c.fullName.toLowerCase()))
+                            rowsForType.push(present(c.fullName));
+                    }
+                } else if (FIELD_TYPES.has(type)) {
+                    for (const c of cands) {
+                        const dot = c.fullName.indexOf('.');
+                        if (dot < 0) {
+                            rowsForType.push(present(c.fullName)); // no parent object to resolve → don't alarm
+                            continue;
+                        }
+                        const fset = await fieldsOf(c.fullName.slice(0, dot));
+                        if (fset === null || fset.has(c.fullName.slice(dot + 1).toLowerCase())) {
+                            rowsForType.push(present(c.fullName));
+                        }
+                    }
+                } else {
+                    try {
+                        // refresh:true — existence must reflect the target's CURRENT state
+                        // (a prior deploy in this session changed it).
+                        const { rows: listed } = await listComponents(tconn, type, {
+                            apiVersion,
+                            orgKey: targetKey,
+                            refresh: true,
+                        });
+                        rowsForType.push(...listed);
+                    } catch {
+                        /* leave empty → treated as missing */
+                    }
+                }
+                targetByType[type] = rowsForType;
             }
         } catch (e) {
             caveat = `Couldn't read the target org (${e.message}); showing dependencies without target comparison.`;
