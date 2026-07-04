@@ -19,6 +19,7 @@ import {
 } from './store.js';
 // buildPackageXml (for the `p` preview) is imported lazily — it pulls in SDR.
 import { TEST_LEVELS } from './constants.js';
+import { collapseContext } from './diff.js';
 
 const trunc = (s, n) => {
     s = s || '';
@@ -76,6 +77,57 @@ function highlightMatches(text, tokens) {
     return out;
 }
 
+// Render a diff (from diff.js) into blessed-tag lines with a two-column line-
+// number gutter and green/red +/- coloring. mode 'full' shows the whole file;
+// 'changes' collapses unchanged runs into "⋯ N unchanged" markers.
+function formatDiffLines(diff, mode, innerWidth) {
+    let maxOld = 1;
+    let maxNew = 1;
+    for (const o of diff.ops) {
+        if (o.oldNo && o.oldNo > maxOld) maxOld = o.oldNo;
+        if (o.newNo && o.newNo > maxNew) maxNew = o.newNo;
+    }
+    const wOld = String(maxOld).length;
+    const wNew = String(maxNew).length;
+    const textW = Math.max(10, innerWidth - wOld - wNew - 6);
+    const display = mode === 'changes' ? collapseContext(diff.ops, 3) : diff.ops;
+    const truncTag = (s) => (s.length > textW ? `${s.slice(0, textW - 1)}…` : s);
+    const escT = (s) => String(s).replace(/\{/g, '{open}').replace(/\}/g, '{close}');
+    return display.map((op) => {
+        if (op.kind === 'gap') {
+            return `{gray-fg}${' '.repeat(wOld + wNew + 2)}⋯ ${op.count} unchanged{/gray-fg}`;
+        }
+        const o = op.oldNo != null ? String(op.oldNo).padStart(wOld) : ' '.repeat(wOld);
+        const nn = op.newNo != null ? String(op.newNo).padStart(wNew) : ' '.repeat(wNew);
+        const gut = `{gray-fg}${o} ${nn} │{/gray-fg}`;
+        const t = escT(truncTag(op.text));
+        if (op.kind === 'add') return `${gut} {green-fg}+ ${t}{/green-fg}`;
+        if (op.kind === 'del') return `${gut} {red-fg}- ${t}{/red-fg}`;
+        return `${gut}   {gray-fg}${t}{/gray-fg}`;
+    });
+}
+
+// State-aware body for the diff viewer (both the modal and the split pane).
+function formatDiffBody(data, mode, innerWidth) {
+    if (!data || !data.supported) {
+        return [
+            '{gray-fg}Diff isn’t available for this type yet — Apex classes, triggers, pages, and components for now.{/gray-fg}',
+        ];
+    }
+    if (!data.sourceExists && !data.targetExists) return ['{gray-fg}Not found in either org.{/gray-fg}'];
+    if (!data.targetExists) {
+        return [
+            '{green-fg}✓ New in the target — the whole component would be created.{/green-fg}',
+            '',
+            ...formatDiffLines(data.diff, 'full', innerWidth),
+        ];
+    }
+    if (!data.sourceExists) return ['{red-fg}Only in the target — not present in the source.{/red-fg}'];
+    if (data.diff.added === 0 && data.diff.removed === 0)
+        return ['{green-fg}✓ Identical in both orgs.{/green-fg}'];
+    return formatDiffLines(data.diff, mode, innerWidth);
+}
+
 const SPIN_FRAMES = ['|', '/', '-', '\\']; // ASCII — renders in every terminal/font
 
 // Single source of truth for the unfocused border colour. 235 is a dark grey in
@@ -131,6 +183,7 @@ const HELP_TEXT = [
     '  s                 load a saved selection (history)',
     '  S                 save the selection with a name',
     '  p                 preview the generated package.xml',
+    '  >                 diff the highlighted component: source ↔ target',
     '  D                 check dependencies against the target org',
     '  r                 refresh current type from the org',
     '  b                 write package.xml only',
@@ -156,6 +209,7 @@ export function runTui({
     onListSessions = null,
     onSaveSession = null,
     checkDependencies = null,
+    getDiffSources = null,
     initialTestLevel = null,
     apiVersion = null,
 }) {
@@ -574,7 +628,7 @@ export function runTui({
                     ' {cyan-fg}↑↓/jk{/cyan-fg} move  {red-fg}space/x{/red-fg} remove  {cyan-fg}tab{/cyan-fg} pane  {cyan-fg}Alt+B{/cyan-fg} hide panel';
             } else {
                 line1 =
-                    ' {cyan-fg}↑↓/jk{/cyan-fg} move  {cyan-fg}space{/cyan-fg} check  {cyan-fg}V{/cyan-fg} range  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}f{/cyan-fg} pin  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level';
+                    ' {cyan-fg}↑↓/jk{/cyan-fg} move  {cyan-fg}space{/cyan-fg} check  {cyan-fg}V{/cyan-fg} range  {cyan-fg}>{/cyan-fg} diff  {cyan-fg}a{/cyan-fg} all  {cyan-fg}c{/cyan-fg} clear  {cyan-fg}/{/cyan-fg} filter  {cyan-fg}1-4{/cyan-fg} sort  {cyan-fg}t{/cyan-fg} target  {cyan-fg}l{/cyan-fg} test-level';
             }
             footer.setContent(
                 `${line1}\n` +
@@ -1367,6 +1421,9 @@ export function runTui({
             const keyOf = (r) => `${r.type}:${r.fullName}`;
             const toAdd = new Set(rows.filter((r) => r.status === 'missing').map(keyOf));
             let cur = 0;
+            let diffBox = null; // right-side diff pane when the split is open
+            let diffMode = 'full';
+            let diffToken = 0; // guards against out-of-order fetches while moving
             const box = blessed.box({
                 parent: screen,
                 top: 'center',
@@ -1436,7 +1493,7 @@ export function runTui({
                 if (caveat) lines.push('', `{gray-fg}${caveat}{/gray-fg}`);
                 lines.push(
                     '',
-                    ' {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}space{/cyan-fg} add/skip  {cyan-fg}a{/cyan-fg} add all new  {green-fg}enter{/green-fg} apply  {red-fg}esc{/red-fg} cancel',
+                    ' {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}space{/cyan-fg} add/skip  {cyan-fg}a{/cyan-fg} add all new  {cyan-fg}>{/cyan-fg} diff  {green-fg}enter{/green-fg} apply  {red-fg}esc{/red-fg} cancel',
                 );
                 box.setContent(lines.join('\n'));
                 // Keep the cursor visible WITHOUT snapping it to the top: only scroll
@@ -1451,10 +1508,100 @@ export function runTui({
                 }
                 paint();
             }
+            // ---- master-detail split (>) : dep list left, live diff right ----
+            async function updateSplitDiff() {
+                if (!diffBox) return;
+                const r = rows[cur];
+                const myToken = ++diffToken;
+                diffBox.setLabel(r ? ` ${r.fullName} · ${store.sourceOrg} ↔ ${store.targetOrg} ` : ' Diff ');
+                diffBox.setContent('{gray-fg}Loading diff …{/gray-fg}');
+                diffBox.setScroll(0);
+                paint();
+                if (!r) return;
+                let data;
+                try {
+                    data = await fetchDiff(r.type, r.fullName);
+                } catch (e) {
+                    if (myToken === diffToken) {
+                        diffBox.setContent(`{red-fg}Diff failed: ${e.message}{/red-fg}`);
+                        paint();
+                    }
+                    return;
+                }
+                if (myToken !== diffToken || !diffBox) return; // superseded by a newer move / closed
+                const innerW =
+                    (typeof diffBox.width === 'number' ? diffBox.width : Math.floor(screen.width * 0.5)) - 4;
+                diffBox.setLabel(` ${r.fullName}  ${diffSummary(data)} · ${diffMode} (f) `);
+                diffBox.setContent(formatDiffBody(data, diffMode, innerW).join('\n'));
+                paint();
+            }
+            function openSplit() {
+                box.left = 0;
+                box.width = '49%';
+                diffBox = blessed.box({
+                    parent: screen,
+                    top: 'center',
+                    left: '50%',
+                    width: '50%',
+                    height: '82%',
+                    border: 'line',
+                    tags: true,
+                    keys: false,
+                    mouse: true,
+                    scrollable: true,
+                    alwaysScroll: true,
+                    label: ' Diff ',
+                    padding: { left: 1, right: 1 },
+                    style: { border: { fg: DIM }, label: { fg: 'cyan' } },
+                    scrollbar: { ch: ' ', style: { bg: 'cyan' } },
+                });
+                diffBox.key(['down', 'j'], () => {
+                    diffBox.scroll(1);
+                    paint();
+                });
+                diffBox.key(['up', 'k'], () => {
+                    diffBox.scroll(-1);
+                    paint();
+                });
+                diffBox.key('pagedown', () => {
+                    diffBox.scroll(10);
+                    paint();
+                });
+                diffBox.key('pageup', () => {
+                    diffBox.scroll(-10);
+                    paint();
+                });
+                diffBox.key(['tab', 'escape'], () => {
+                    box.style.border.fg = 'cyan';
+                    diffBox.style.border.fg = DIM;
+                    box.focus();
+                    paint();
+                });
+                box.style.border.fg = DIM;
+                diffBox.style.border.fg = 'cyan';
+                screen.render();
+                render();
+                updateSplitDiff();
+                diffBox.focus();
+            }
+            function closeSplit() {
+                if (!diffBox) return;
+                diffToken += 1;
+                diffBox.destroy();
+                diffBox = null;
+                box.left = 'center';
+                box.width = '84%';
+                box.style.border.fg = 'cyan';
+                box.focus();
+                screen.render();
+                render();
+            }
+
             const move = (d) => {
                 if (!rows.length) return;
                 cur = (((cur + d) % rows.length) + rows.length) % rows.length;
                 render();
+                if (diffBox) updateSplitDiff();
             };
             const apply = () => {
                 let added = 0;
@@ -1464,6 +1611,7 @@ export function runTui({
                         added += 1;
                     }
                 }
+                if (diffBox) diffBox.destroy();
                 box.destroy();
                 modal = false;
                 recomputeView();
@@ -1474,6 +1622,7 @@ export function runTui({
                 focusPane(table);
             };
             const cancel = () => {
+                if (diffBox) diffBox.destroy();
                 box.destroy();
                 modal = false;
                 focusPane(focusedPane || table);
@@ -1491,6 +1640,28 @@ export function runTui({
             box.key('a', () => {
                 rows.filter((r) => r.status === 'missing').forEach((r) => toAdd.add(keyOf(r)));
                 render();
+            });
+            // > opens/closes the side-by-side diff for the highlighted row; f toggles
+            // its view mode; tab moves focus into the diff to scroll it.
+            box.key('>', () => {
+                if (!getDiffSources) {
+                    return;
+                }
+                if (diffBox) closeSplit();
+                else openSplit();
+            });
+            box.key('f', () => {
+                if (!diffBox) return;
+                diffMode = diffMode === 'full' ? 'changes' : 'full';
+                updateSplitDiff();
+            });
+            box.key('tab', () => {
+                if (diffBox) {
+                    box.style.border.fg = DIM;
+                    diffBox.style.border.fg = 'cyan';
+                    diffBox.focus();
+                    paint();
+                }
             });
             box.key(['enter', 'return'], apply);
             box.key(['escape', 'q'], cancel);
@@ -1529,6 +1700,124 @@ export function runTui({
             depMissing = rows.filter((r) => r.status === 'missing').length;
             renderHeader();
             openDepsPanel(rows, res && res.caveat);
+        });
+
+        // ---- diff viewer (>) --------------------------------------------------
+        // Fetch both bodies and compute the diff (old = target, new = source).
+        async function fetchDiff(type, fullName) {
+            const res = await getDiffSources(type, fullName);
+            if (!res || !res.supported) return { supported: false };
+            const { diffLines } = await import('./diff.js');
+            const s = res.sourceBody;
+            const t = res.targetBody;
+            return {
+                supported: true,
+                sourceExists: s != null,
+                targetExists: t != null,
+                diff: diffLines(t || '', s || ''),
+            };
+        }
+        function diffSummary(data) {
+            return data && data.diff ? `+${data.diff.added} −${data.diff.removed}` : '';
+        }
+
+        // Standalone centered viewer (from the component list).
+        function openDiffModal(fullName, data) {
+            modal = true;
+            let mode = 'full';
+            const box = blessed.box({
+                parent: screen,
+                top: 'center',
+                left: 'center',
+                width: '88%',
+                height: '88%',
+                border: 'line',
+                tags: true,
+                keys: false,
+                mouse: true,
+                scrollable: true,
+                alwaysScroll: true,
+                padding: { left: 1, right: 1 },
+                style: { border: { fg: 'cyan' }, label: { fg: 'cyan' } },
+                scrollbar: { ch: ' ', style: { bg: 'cyan' } },
+            });
+            function render() {
+                const innerW =
+                    (typeof box.width === 'number' ? box.width : Math.floor(screen.width * 0.88)) - 4;
+                box.setLabel(
+                    ` ${fullName} · ${store.sourceOrg} ↔ ${store.targetOrg}  ${diffSummary(data)} · ${mode} (f)  ·  esc `,
+                );
+                box.setContent(formatDiffBody(data, mode, innerW).join('\n'));
+                paint();
+            }
+            const close = () => {
+                box.destroy();
+                modal = false;
+                focusPane(focusedPane || table);
+            };
+            box.key('f', () => {
+                mode = mode === 'full' ? 'changes' : 'full';
+                box.setScroll(0);
+                render();
+            });
+            box.key(['down', 'j'], () => {
+                box.scroll(1);
+                paint();
+            });
+            box.key(['up', 'k'], () => {
+                box.scroll(-1);
+                paint();
+            });
+            box.key('pagedown', () => {
+                box.scroll(viewportHeight());
+                paint();
+            });
+            box.key('pageup', () => {
+                box.scroll(-viewportHeight());
+                paint();
+            });
+            box.key('g', () => {
+                box.setScroll(0);
+                paint();
+            });
+            box.key('S-g', () => {
+                box.setScroll(box.getScrollHeight ? box.getScrollHeight() : 99999);
+                paint();
+            });
+            box.key(['escape', 'q', '>'], close);
+            box.focus();
+            render();
+        }
+
+        async function openDiffFor(type, fullName) {
+            if (!getDiffSources) {
+                status('Diff isn’t available here.');
+                return;
+            }
+            busy = true;
+            startSpin(`Diffing ${fullName} against ${store.targetOrg || '(no target)'} …`);
+            let data;
+            try {
+                data = await fetchDiff(type, fullName);
+            } catch (e) {
+                stopSpin();
+                busy = false;
+                status(`Diff failed: ${e.message}`);
+                return;
+            }
+            stopSpin();
+            busy = false;
+            openDiffModal(fullName, data);
+        }
+
+        screen.key('>', () => {
+            if (filtering || modal || busy || !table.focused) return;
+            if (!store.targetOrg) {
+                status('Pick a target org (t) first — diff compares source ↔ target.');
+                return;
+            }
+            const r = view[cursor];
+            if (r) openDiffFor(r.type, r.fullName);
         });
 
         // A prior D check (for the current, unchanged selection) surfaces a soft

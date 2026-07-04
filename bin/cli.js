@@ -68,6 +68,7 @@ program
         let seedNote = null; // splash line describing an imported selection
         let sourceConn = null; // source connection, captured during the splash (for D)
         let checkDependencies = null; // set below per demo / real mode
+        let getDiffSources = null; // source↔target diff provider (>), set below
 
         if (cmdOpts.demo) {
             store.sourceOrg = 'DEMO';
@@ -108,6 +109,15 @@ program
                 ],
                 caveat: '[demo] sample dependencies — no org connection.',
             });
+            // Sample bodies so > demonstrates the diff viewer offline.
+            getDiffSources = async (type, fullName) => {
+                if (type !== 'ApexClass' && type !== 'ApexTrigger') return { supported: false };
+                return {
+                    supported: true,
+                    targetBody: `public with sharing class ${fullName} {\n    Integer legacyLimit = 50;\n    void run() {}\n}`,
+                    sourceBody: `public with sharing class ${fullName} {\n    Integer legacyLimit = 200;\n    void run() {\n        System.debug(legacyLimit);\n    }\n}`,
+                };
+            };
         } else {
             // Source org is chosen BEFORE blessed (it needs an inquirer prompt when
             // --source isn't given); the slow connect+describe happens under the splash.
@@ -189,6 +199,15 @@ program
                 const { makeDependencyChecker } = await import('../src/depcheck.js');
                 return makeDependencyChecker({ getSourceConn: () => sourceConn, apiVersion, store })(entries);
             };
+            // > → source ↔ target diff (created once so the target connection is reused).
+            let diffFetcher = null;
+            getDiffSources = async (type, fullName) => {
+                if (!diffFetcher) {
+                    const { makeSourceFetcher } = await import('../src/sourcefetch.js');
+                    diffFetcher = makeSourceFetcher({ getSourceConn: () => sourceConn, store });
+                }
+                return diffFetcher(type, fullName);
+            };
         }
 
         // --import pre-selects from a package.xml/zip. Past sessions are NOT
@@ -228,6 +247,7 @@ program
             onListSessions: () => listSessions(orgKey()),
             onSaveSession: (payload) => addSession(orgKey(), payload),
             checkDependencies,
+            getDiffSources,
         });
 
         // Checkpoint the selection to history on a real action — or on an explicit
