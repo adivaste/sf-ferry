@@ -1439,7 +1439,16 @@ export function runTui({
                     ' {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}space{/cyan-fg} add/skip  {cyan-fg}a{/cyan-fg} add all new  {green-fg}enter{/green-fg} apply  {red-fg}esc{/red-fg} cancel',
                 );
                 box.setContent(lines.join('\n'));
-                if (typeof box.scrollTo === 'function') box.scrollTo(cursorLine);
+                // Keep the cursor visible WITHOUT snapping it to the top: only scroll
+                // when it would fall outside the current window (natural list feel).
+                if (typeof box.scrollTo === 'function') {
+                    const h = typeof box.height === 'number' ? box.height : Math.floor(screen.height * 0.82);
+                    const vh = Math.max(3, h - 2); // minus top/bottom borders
+                    let sc = box.childBase || 0;
+                    if (cursorLine < sc) sc = cursorLine;
+                    else if (cursorLine >= sc + vh) sc = cursorLine - vh + 1;
+                    box.scrollTo(Math.max(0, sc));
+                }
                 paint();
             }
             const move = (d) => {
