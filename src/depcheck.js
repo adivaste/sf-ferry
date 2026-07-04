@@ -1,6 +1,9 @@
+import path from 'node:path';
 import { connect } from './org.js';
 import { listComponents } from './metadata.js';
 import { suggestTestClasses, buildTargetIndex, resolveDependencies } from './dependencies.js';
+import { writeJsonAtomic } from './fsjson.js';
+import { ferryHome } from './paths.js';
 
 // I/O glue for the dependency check: gathers level-1 candidates (test-class
 // naming + Salesforce's MetadataComponentDependency), then classifies them
@@ -14,6 +17,19 @@ const MAX_DEP_IDS = 200; // cap the IN(...) list so the Tooling query stays well
 // rather than listMetadata, which omits standard objects and many standard fields.
 const OBJECT_TYPES = new Set(['CustomObject', 'StandardEntity']);
 const FIELD_TYPES = new Set(['CustomField']);
+
+// Normalize an API/DeveloperName to a comparable base: lowercase, drop a trailing
+// custom suffix (__c, __mdt, __e, …) and any namespace prefix. The dependency API
+// returns custom names as DeveloperName ("Broker", "Region") while describe returns
+// API names ("Broker__c", "Region__c"); comparing on the base matches them in
+// either direction, and standard names ("User", "Name") pass through unchanged.
+function baseName(name) {
+    const parts = String(name || '')
+        .toLowerCase()
+        .split('__');
+    if (parts.length >= 2) parts.pop(); // drop the custom-suffix token (c / mdt / e / …)
+    return parts[parts.length - 1] || ''; // last segment = the entity/field name (drops namespace)
+}
 
 function idsForEntries(entries, componentsByType) {
     const out = [];
@@ -97,33 +113,33 @@ export function makeDependencyChecker({ getSourceConn, apiVersion, store }) {
             const tconn = await connect(store.targetOrg);
             const targetKey = `target-${tconn.getUsername?.() || store.targetOrg}`;
 
-            // Object existence (standard + custom) from a single global describe.
-            let objectSet = null; // Set of lowercased sObject API names; null = describe failed
+            // Object existence (standard + custom) from a single global describe,
+            // indexed by base name → real API name (so we can describe fields later).
+            let objectApiByBase = null; // Map base->apiName; null = describe failed
             if (candidates.some((c) => OBJECT_TYPES.has(c.type) || FIELD_TYPES.has(c.type))) {
                 try {
                     const g = await tconn.describeGlobal();
-                    objectSet = new Set((g?.sobjects || []).map((s) => String(s.name).toLowerCase()));
+                    objectApiByBase = new Map((g?.sobjects || []).map((s) => [baseName(s.name), s.name]));
                 } catch {
-                    objectSet = null;
+                    objectApiByBase = null;
                 }
             }
-            // Field existence per object, described lazily. null = describe failed.
+            // Field base-names per object, described lazily. null = describe failed.
             const fieldCache = new Map();
-            const fieldsOf = async (objName) => {
-                const kl = objName.toLowerCase();
-                if (fieldCache.has(kl)) return fieldCache.get(kl);
+            const fieldBasesOf = async (apiName) => {
+                if (fieldCache.has(apiName)) return fieldCache.get(apiName);
                 let set = null;
                 try {
-                    const d = await tconn.describe(objName);
-                    set = new Set((d?.fields || []).map((f) => String(f.name).toLowerCase()));
+                    const d = await tconn.describe(apiName);
+                    set = new Set((d?.fields || []).map((f) => baseName(f.name)));
                 } catch {
                     set = null;
                 }
-                fieldCache.set(kl, set);
+                fieldCache.set(apiName, set);
                 return set;
             };
             // A row is added to targetByType only when the component EXISTS (or when
-            // we can't tell — see present() ), so resolveDependencies marks the rest missing.
+            // we can't tell — assume present), so resolveDependencies marks the rest missing.
             const present = (fullName) => ({ fullName, lastModifiedDate: '' });
 
             for (const type of types) {
@@ -132,18 +148,25 @@ export function makeDependencyChecker({ getSourceConn, apiVersion, store }) {
                 if (OBJECT_TYPES.has(type)) {
                     for (const c of cands) {
                         // Can't describe → assume present (don't falsely alarm).
-                        if (objectSet === null || objectSet.has(c.fullName.toLowerCase()))
+                        if (objectApiByBase === null || objectApiByBase.has(baseName(c.fullName))) {
                             rowsForType.push(present(c.fullName));
+                        }
                     }
                 } else if (FIELD_TYPES.has(type)) {
                     for (const c of cands) {
                         const dot = c.fullName.indexOf('.');
-                        if (dot < 0) {
-                            rowsForType.push(present(c.fullName)); // no parent object to resolve → don't alarm
+                        // No parent object, or global describe failed → can't tell, assume present.
+                        if (dot < 0 || objectApiByBase === null) {
+                            rowsForType.push(present(c.fullName));
                             continue;
                         }
-                        const fset = await fieldsOf(c.fullName.slice(0, dot));
-                        if (fset === null || fset.has(c.fullName.slice(dot + 1).toLowerCase())) {
+                        const objApi = objectApiByBase.get(baseName(c.fullName.slice(0, dot)));
+                        if (!objApi) {
+                            rowsForType.push(present(c.fullName)); // parent object unknown → don't alarm
+                            continue;
+                        }
+                        const fset = await fieldBasesOf(objApi);
+                        if (fset === null || fset.has(baseName(c.fullName.slice(dot + 1)))) {
                             rowsForType.push(present(c.fullName));
                         }
                     }
@@ -173,6 +196,21 @@ export function makeDependencyChecker({ getSourceConn, apiVersion, store }) {
             sourceDates,
             selectedSet,
         });
+
+        // FERRY_DEBUG=1 → dump raw candidates + classification to a file so the exact
+        // names the org returns can be inspected (the TUI can't print to stderr).
+        if (process.env.FERRY_DEBUG) {
+            try {
+                writeJsonAtomic(
+                    path.join(ferryHome(), 'depcheck-debug.json'),
+                    { target: store.targetOrg, candidates, targetByType, rows },
+                    { pretty: true },
+                );
+            } catch {
+                /* debug dump is best-effort */
+            }
+        }
+
         return { rows, caveat };
     };
 }
