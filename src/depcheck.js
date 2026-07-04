@@ -86,9 +86,13 @@ export function makeDependencyChecker({ getSourceConn, apiVersion, store }) {
             const targetKey = `target-${tconn.getUsername?.() || store.targetOrg}`;
             for (const type of types) {
                 try {
+                    // refresh:true — existence MUST reflect the target's current
+                    // state. A prior deploy in this session changed the target, so a
+                    // stale cache would report already-migrated components as "new".
                     ({ rows: targetByType[type] } = await listComponents(tconn, type, {
                         apiVersion,
                         orgKey: targetKey,
+                        refresh: true,
                     }));
                 } catch {
                     targetByType[type] = [];

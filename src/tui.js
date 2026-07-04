@@ -401,7 +401,7 @@ export function runTui({
                     `{white-fg}tests{/white-fg} {magenta-fg}{bold}${testLevel}{/bold}{/magenta-fg}` +
                     div +
                     `{green-fg}{bold}✓ ${selectionCount(store)}{/bold} selected{/green-fg}` +
-                    (depMissing > 0 ? `${div}{yellow-fg}{bold}⚠ ${depMissing} deps{/bold}{/yellow-fg}` : ''),
+                    (depMissing > 0 ? `${div}{yellow-fg}{bold}⚠ ${depMissing} new{/bold}{/yellow-fg}` : ''),
             );
         }
         // Cache the filtered type list by its filter key so re-deriving it (e.g. in
@@ -1359,16 +1359,9 @@ export function runTui({
             confirmAction(message, () => finish(action));
         }
         // ---- dependency check (D) --------------------------------------------
-        const statusGlyph = (s) =>
-            s === 'missing'
-                ? '{red-fg}●{/red-fg}'
-                : s === 'older'
-                  ? '{yellow-fg}▲{/yellow-fg}'
-                  : '{green-fg}✓{/green-fg}';
-
-        // Review panel: level-1 dependencies of the selection, classified against
-        // the target. Missing rows are pre-checked; enter merges the checked ones
-        // into the selection. Suggest-not-bundle — the user decides.
+        // Review panel: level-1 dependencies of the selection, grouped by whether
+        // the target already has them. Not-in-target rows are pre-checked; enter
+        // merges the checked ones into the selection. Suggest-not-bundle.
         function openDepsPanel(rows, caveat) {
             modal = true;
             const keyOf = (r) => `${r.type}:${r.fullName}`;
@@ -1392,28 +1385,61 @@ export function runTui({
                 scrollbar: { ch: ' ', style: { bg: 'cyan' } },
             });
             function render() {
+                // Group by the reliable axis (existence), not the fuzzy one. "missing"
+                // = not in the target yet (the real to-do); everything else is already
+                // there, with a soft "source newer" hint on the ones whose source
+                // changed after the target's copy.
+                const notInCount = rows.filter((r) => r.status === 'missing').length;
+                const inCount = rows.length - notInCount;
+                const olderCount = rows.filter((r) => r.status === 'older').length;
+                const tgt = store.targetOrg;
                 const lines = [];
+                let cursorLine = 0;
+
                 if (!rows.length) {
-                    lines.push(
-                        '{green-fg}✓ Nothing missing — all level-1 dependencies exist in the target.{/green-fg}',
-                    );
+                    lines.push(`{green-fg}✓ All dependencies are already in ${tgt}.{/green-fg}`);
                 } else {
-                    lines.push(
-                        '{gray-fg}  add   status     type / name                        why / in target{/gray-fg}',
-                    );
+                    if (notInCount === 0) {
+                        lines.push(
+                            `{green-fg}✓ Nothing new — every dependency already exists in ${tgt}.{/green-fg}`,
+                            '',
+                        );
+                    }
+                    let shownNotIn = false;
+                    let shownIn = false;
                     rows.forEach((r, i) => {
-                        const mark = toAdd.has(keyOf(r)) ? '[x]' : '[ ]';
-                        const meta = `${r.why}${r.targetDate ? `  ·  in target ${shortDate(r.targetDate)}` : ''}`;
-                        const body = `${mark}  ${statusGlyph(r.status)} ${pad(r.status, 8)} ${pad(trunc(r.type, 16), 16)} ${trunc(r.fullName, 30)}  {gray-fg}${meta}{/gray-fg}`;
+                        if (r.status === 'missing' && !shownNotIn) {
+                            shownNotIn = true;
+                            lines.push(
+                                `{red-fg}{bold}Not in ${tgt} yet (${notInCount}) — add these{/bold}{/red-fg}`,
+                            );
+                        }
+                        if (r.status !== 'missing' && !shownIn) {
+                            shownIn = true;
+                            if (lines.length) lines.push('');
+                            lines.push(
+                                `{gray-fg}Already in ${tgt} (${inCount})${olderCount ? ` · ${olderCount} with newer source` : ''}{/gray-fg}`,
+                            );
+                        }
+                        if (i === cur) cursorLine = lines.length;
+                        const checked = toAdd.has(keyOf(r)) ? '[x]' : '[ ]';
+                        const glyph =
+                            r.status === 'missing' ? '{red-fg}＋{/red-fg}' : '{green-fg}✓{/green-fg}';
+                        const hint = r.status === 'older' ? '  {yellow-fg}↑ source newer{/yellow-fg}' : '';
+                        const dateNote = r.targetDate
+                            ? `  {gray-fg}· in target ${shortDate(r.targetDate)}{/gray-fg}`
+                            : '';
+                        const body = `${checked}  ${glyph} ${pad(trunc(r.type, 16), 16)} ${trunc(r.fullName, 30)}  {gray-fg}${r.why}{/gray-fg}${dateNote}${hint}`;
                         lines.push(i === cur ? `{cyan-fg}{bold}❯ ${body}{/bold}{/cyan-fg}` : `  ${body}`);
                     });
                 }
                 if (caveat) lines.push('', `{gray-fg}${caveat}{/gray-fg}`);
                 lines.push(
                     '',
-                    ' {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}space{/cyan-fg} add/skip  {cyan-fg}a{/cyan-fg} add all missing  {green-fg}enter{/green-fg} apply  {red-fg}esc{/red-fg} cancel',
+                    ' {cyan-fg}↑↓{/cyan-fg} move  {cyan-fg}space{/cyan-fg} add/skip  {cyan-fg}a{/cyan-fg} add all new  {green-fg}enter{/green-fg} apply  {red-fg}esc{/red-fg} cancel',
                 );
                 box.setContent(lines.join('\n'));
+                if (typeof box.scrollTo === 'function') box.scrollTo(cursorLine);
                 paint();
             }
             const move = (d) => {
@@ -1500,7 +1526,7 @@ export function runTui({
         // warning in the deploy/validate confirm — informed, never blocking.
         const depWarn = () =>
             depMissing > 0
-                ? `\n{yellow-fg}⚠ ${depMissing} referenced component(s) missing in ${store.targetOrg} — press D to review{/yellow-fg}`
+                ? `\n{yellow-fg}⚠ ${depMissing} dependenc${depMissing === 1 ? 'y is' : 'ies are'} not in ${store.targetOrg} yet — press D to review{/yellow-fg}`
                 : '';
 
         const count = () => selectionCount(store);
