@@ -32,7 +32,7 @@ const timer = setTimeout(() => {
 const p = runTui({ store, loadComponents, orgs: [] });
 const at = (ms, fn) => setTimeout(fn, ms);
 
-// TEST_LEVELS = [NoTestRun, RunSpecifiedTests, RunLocalTests, RunAllTestsInOrg]
+// TEST_LEVELS = [NoTestRun, RunSpecifiedTests, RunLocalTests, RunAllTestsInOrg, RunRelevantTests]
 // 'l' opens a picker pre-selected on the current level (RunLocalTests, idx 2);
 // 'k' (up) moves to RunSpecifiedTests (idx 1); enter chooses it.
 at(300, () => input.write('\r')); // open ApexClass, focus table
