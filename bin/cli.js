@@ -428,7 +428,8 @@ program
     .option('--json', 'print a single JSON result object instead of human output')
     .action(async (cmdOpts) => {
         const { apiVersion, manifestDir } = settings(program.opts());
-        const { TEST_LEVELS } = await import('../src/constants.js');
+        const { TEST_LEVELS, RELEVANT_TESTS_MIN_API, relevantTestsUnsupported } =
+            await import('../src/constants.js');
         const testLevel = cmdOpts.testLevel;
         const asJson = !!cmdOpts.json;
         const fail = (msg, code = 1) => {
@@ -439,6 +440,11 @@ program
 
         if (!TEST_LEVELS.includes(testLevel))
             fail(`Invalid --test-level "${testLevel}". Use one of: ${TEST_LEVELS.join(', ')}`);
+        if (relevantTestsUnsupported(testLevel, apiVersion) && !asJson) {
+            console.error(
+                `Note: RunRelevantTests needs API ${RELEVANT_TESTS_MIN_API}+ (currently ${apiVersion}); pass --api-version ${RELEVANT_TESTS_MIN_API}.`,
+            );
+        }
         if (!cmdOpts.import && !cmdOpts.session)
             fail('Provide --import <package.xml|zip> or --session <name> to define what to deploy.');
 
