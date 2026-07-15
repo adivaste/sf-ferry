@@ -18,7 +18,7 @@ import {
     manifestEntries,
 } from './store.js';
 // buildPackageXml (for the `p` preview) is imported lazily — it pulls in SDR.
-import { TEST_LEVELS } from './constants.js';
+import { TEST_LEVELS, RELEVANT_TESTS_MIN_API, relevantTestsUnsupported } from './constants.js';
 
 const trunc = (s, n) => {
     s = s || '';
@@ -890,18 +890,27 @@ export function runTui({
             await ensureLoaded(store.activeType, { refresh: true });
             focusPane(table);
         });
+        // RunRelevantTests only works on API 66+; label it and warn if unsupported.
+        const testLevelLabel = (lvl) =>
+            lvl === 'RunRelevantTests' ? `${lvl}  (API ${RELEVANT_TESTS_MIN_API}+, beta)` : lvl;
         screen.key('l', () => {
             if (filtering || modal || typing()) return;
             openPicker({
                 label: ' Test level  (↑↓ wraps · esc cancels) ',
-                items: TEST_LEVELS.slice(),
+                items: TEST_LEVELS.map(testLevelLabel),
                 selectedIndex: Math.max(0, TEST_LEVELS.indexOf(testLevel)),
                 onChoose: (i) => {
                     if (TEST_LEVELS[i]) {
                         testLevel = TEST_LEVELS[i];
                         renderHeader();
                         renderFooter();
-                        paint();
+                        if (relevantTestsUnsupported(testLevel, apiVersion)) {
+                            status(
+                                `RunRelevantTests needs API ${RELEVANT_TESTS_MIN_API}+ — set --api-version ${RELEVANT_TESTS_MIN_API} (currently ${apiVersion || 'default'}).`,
+                            );
+                        } else {
+                            paint();
+                        }
                     }
                 },
             });
@@ -1320,7 +1329,7 @@ export function runTui({
                 top: 'center',
                 left: 'center',
                 width: '60%',
-                height: 6,
+                height: 5 + message.split('\n').length, // grow for multi-line messages (e.g. the test-level warning)
                 border: 'line',
                 tags: true,
                 label: ' Confirm ',
@@ -1353,16 +1362,24 @@ export function runTui({
             }
             confirmAction(message, () => finish(action));
         }
+        // Warn if RunRelevantTests is chosen on an API version that can't run it.
+        const testWarn = () =>
+            relevantTestsUnsupported(testLevel, apiVersion)
+                ? `\n{yellow-fg}⚠ RunRelevantTests needs API ${RELEVANT_TESTS_MIN_API}+ (currently ${apiVersion || 'default'}) — set --api-version ${RELEVANT_TESTS_MIN_API}{/yellow-fg}`
+                : '';
         const count = () => selectionCount(store);
         screen.key('b', () => confirmThen(`Write package.xml with ${count()} component(s)?`, 'build'));
         screen.key('v', () =>
             confirmThen(
-                `Validate ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?`,
+                `Validate ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?${testWarn()}`,
                 'validate',
             ),
         );
         screen.key('d', () =>
-            confirmThen(`Deploy ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?`, 'deploy'),
+            confirmThen(
+                `Deploy ${count()} component(s)  →  ${store.targetOrg || '(no target)'} ?${testWarn()}`,
+                'deploy',
+            ),
         );
         screen.key('q', () => {
             if (filtering || modal || typing()) return;
